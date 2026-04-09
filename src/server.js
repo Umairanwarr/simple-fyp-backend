@@ -1,8 +1,20 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import cors from 'cors';
 import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { connectDB } from './config/db.js';
 import authRoutes from './routes/auth.js';
+
+const currentFilePath = fileURLToPath(import.meta.url);
+const srcDirectory = path.dirname(currentFilePath);
+const backendRootDirectory = path.resolve(srcDirectory, '..');
+
+dotenv.config({ path: path.resolve(backendRootDirectory, '.env') });
+
+if (!process.env.STRIPE_SECRET_KEY) {
+  dotenv.config({ path: path.resolve(process.cwd(), 'backend/.env') });
+}
 
 const app = express();
 const PORT = process.env.PORT || 5000;

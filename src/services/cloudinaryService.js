@@ -45,6 +45,15 @@ export const uploadMedicalStoreLicenseToCloudinary = async (file) => {
   });
 };
 
+export const uploadUserAvatarToCloudinary = async (file, role = 'users') => {
+  const sanitizedRole = String(role || 'users').replace(/[^a-zA-Z0-9-_]/g, '') || 'users';
+
+  return uploadDocumentToCloudinary(file, {
+    folder: process.env.CLOUDINARY_AVATAR_FOLDER || `fyp/${sanitizedRole}/avatars`,
+    fallbackBaseName: 'avatar'
+  });
+};
+
 const uploadDocumentToCloudinary = async (file, { folder, fallbackBaseName }) => {
   ensureCloudinaryConfigured();
 

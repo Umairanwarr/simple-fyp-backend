@@ -40,6 +40,12 @@ const doctorSchema = new mongoose.Schema(
       required: true,
       trim: true
     },
+    bio: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 1200
+    },
     licenseDocument: {
       url: {
         type: String,
@@ -96,6 +102,52 @@ const doctorSchema = new mongoose.Schema(
       ref: 'Admin',
       default: null
     },
+    profileCtr: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    reviews: [
+      {
+        appointmentId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'Appointment',
+          default: null
+        },
+        patientId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'Patient',
+          required: true
+        },
+        patientName: {
+          type: String,
+          required: true
+        },
+        rating: {
+          type: Number,
+          required: true,
+          min: 1,
+          max: 5
+        },
+        comment: {
+          type: String,
+          default: '',
+          maxlength: 1000
+        },
+        createdAt: {
+          type: Date,
+          default: Date.now
+        }
+      }
+    ],
+    averageRating: {
+      type: Number,
+      default: 0
+    },
+    totalReviews: {
+      type: Number,
+      default: 0
+    },
     verificationOtpHash: {
       type: String,
       default: null
@@ -111,6 +163,65 @@ const doctorSchema = new mongoose.Schema(
     loginOtpExpiresAt: {
       type: Date,
       default: null
+    },
+    notificationsSeenAt: {
+      type: Date,
+      default: null
+    },
+    availabilitySlots: [
+      {
+        date: {
+          type: String,
+          required: true,
+          trim: true
+        },
+        fromTime: {
+          type: String,
+          required: true,
+          trim: true
+        },
+        toTime: {
+          type: String,
+          required: true,
+          trim: true
+        },
+        consultationMode: {
+          type: String,
+          enum: ['online', 'offline'],
+          default: 'online'
+        },
+        priceInRupees: {
+          type: Number,
+          min: 0,
+          default: 0
+        }
+      }
+    ],
+    avatarDocument: {
+      url: {
+        type: String,
+        default: ''
+      },
+      publicId: {
+        type: String,
+        default: null
+      },
+      resourceType: {
+        type: String,
+        default: null
+      },
+      format: {
+        type: String,
+        default: null
+      },
+      originalName: {
+        type: String,
+        default: null
+      },
+      bytes: {
+        type: Number,
+        default: null
+      }
     }
   },
   {

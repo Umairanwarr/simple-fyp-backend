@@ -1,10 +1,18 @@
 import { MedicalStore } from '../../models/MedicalStore.js';
-import { deleteFromCloudinary, uploadMedicalStoreLicenseToCloudinary } from '../../services/cloudinaryService.js';
+import {
+  deleteFromCloudinary,
+  uploadMedicalStoreLicenseToCloudinary,
+  uploadUserAvatarToCloudinary
+} from '../../services/cloudinaryService.js';
 import { sendVerificationOtpEmail } from '../../services/mailService.js';
 import { generateOtp, getOtpExpiryDate, hashOtp } from '../../utils/otp.js';
 import { generateAuthToken } from '../../utils/token.js';
 
 const normalizeEmail = (email) => String(email || '').toLowerCase().trim();
+
+const getMedicalStoreAvatarUrl = (medicalStoreRecord) => {
+  return String(medicalStoreRecord?.avatarDocument?.url || '').trim();
+};
 
 export const registerMedicalStore = async (req, res) => {
   try {
@@ -282,10 +290,50 @@ export const loginMedicalStore = async (req, res) => {
         name: medicalStore.name,
         email: medicalStore.email,
         role: medicalStore.role,
-        applicationStatus: medicalStore.applicationStatus
+        applicationStatus: medicalStore.applicationStatus,
+        avatarUrl: getMedicalStoreAvatarUrl(medicalStore)
       }
     });
   } catch (error) {
     return res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+export const updateMedicalStoreAvatar = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'Avatar image file is required' });
+    }
+
+    const medicalStore = await MedicalStore.findById(req.user?.id);
+
+    if (!medicalStore) {
+      return res.status(404).json({ message: 'Medical store not found' });
+    }
+
+    if (medicalStore.avatarDocument?.publicId) {
+      await deleteFromCloudinary(
+        medicalStore.avatarDocument.publicId,
+        medicalStore.avatarDocument.resourceType || 'image'
+      );
+    }
+
+    const uploadedAvatar = await uploadUserAvatarToCloudinary(req.file, 'medical-stores');
+    medicalStore.avatarDocument = uploadedAvatar;
+    await medicalStore.save();
+
+    return res.status(200).json({
+      message: 'Avatar updated successfully',
+      medicalStore: {
+        id: medicalStore._id,
+        name: medicalStore.name,
+        email: medicalStore.email,
+        role: medicalStore.role,
+        applicationStatus: medicalStore.applicationStatus,
+        avatarUrl: getMedicalStoreAvatarUrl(medicalStore)
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Could not update avatar', error: error.message });
   }
 };

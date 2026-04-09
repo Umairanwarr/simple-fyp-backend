@@ -106,6 +106,32 @@ const medicalStoreSchema = new mongoose.Schema(
     loginOtpExpiresAt: {
       type: Date,
       default: null
+    },
+    avatarDocument: {
+      url: {
+        type: String,
+        default: ''
+      },
+      publicId: {
+        type: String,
+        default: null
+      },
+      resourceType: {
+        type: String,
+        default: null
+      },
+      format: {
+        type: String,
+        default: null
+      },
+      originalName: {
+        type: String,
+        default: null
+      },
+      bytes: {
+        type: Number,
+        default: null
+      }
     }
   },
   {

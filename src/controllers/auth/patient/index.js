@@ -1,0 +1,7 @@
+export * from './appointmentsController.js';
+export * from './authController.js';
+export * from './doctorsController.js';
+export * from './favoritesController.js';
+export * from './historyController.js';
+export * from './notificationsController.js';
+export * from './reviewsController.js';

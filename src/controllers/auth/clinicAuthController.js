@@ -1,10 +1,18 @@
 import { Clinic } from '../../models/Clinic.js';
-import { deleteFromCloudinary, uploadClinicPermitToCloudinary } from '../../services/cloudinaryService.js';
+import {
+  deleteFromCloudinary,
+  uploadClinicPermitToCloudinary,
+  uploadUserAvatarToCloudinary
+} from '../../services/cloudinaryService.js';
 import { sendVerificationOtpEmail } from '../../services/mailService.js';
 import { generateOtp, getOtpExpiryDate, hashOtp } from '../../utils/otp.js';
 import { generateAuthToken } from '../../utils/token.js';
 
 const normalizeEmail = (email) => String(email || '').toLowerCase().trim();
+
+const getClinicAvatarUrl = (clinicRecord) => {
+  return String(clinicRecord?.avatarDocument?.url || '').trim();
+};
 
 export const registerClinic = async (req, res) => {
   try {
@@ -280,10 +288,50 @@ export const loginClinic = async (req, res) => {
         name: clinic.name,
         email: clinic.email,
         role: clinic.role,
-        applicationStatus: clinic.applicationStatus
+        applicationStatus: clinic.applicationStatus,
+        avatarUrl: getClinicAvatarUrl(clinic)
       }
     });
   } catch (error) {
     return res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+export const updateClinicAvatar = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'Avatar image file is required' });
+    }
+
+    const clinic = await Clinic.findById(req.user?.id);
+
+    if (!clinic) {
+      return res.status(404).json({ message: 'Clinic not found' });
+    }
+
+    if (clinic.avatarDocument?.publicId) {
+      await deleteFromCloudinary(
+        clinic.avatarDocument.publicId,
+        clinic.avatarDocument.resourceType || 'image'
+      );
+    }
+
+    const uploadedAvatar = await uploadUserAvatarToCloudinary(req.file, 'clinics');
+    clinic.avatarDocument = uploadedAvatar;
+    await clinic.save();
+
+    return res.status(200).json({
+      message: 'Avatar updated successfully',
+      clinic: {
+        id: clinic._id,
+        name: clinic.name,
+        email: clinic.email,
+        role: clinic.role,
+        applicationStatus: clinic.applicationStatus,
+        avatarUrl: getClinicAvatarUrl(clinic)
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Could not update avatar', error: error.message });
   }
 };

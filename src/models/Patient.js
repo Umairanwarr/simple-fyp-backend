@@ -56,6 +56,42 @@ const patientSchema = new mongoose.Schema(
     resetPasswordTokenExpiresAt: {
       type: Date,
       default: null
+    },
+    notificationsSeenAt: {
+      type: Date,
+      default: null
+    },
+    favoriteDoctorIds: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Doctor'
+      }
+    ],
+    avatarDocument: {
+      url: {
+        type: String,
+        default: ''
+      },
+      publicId: {
+        type: String,
+        default: null
+      },
+      resourceType: {
+        type: String,
+        default: null
+      },
+      format: {
+        type: String,
+        default: null
+      },
+      originalName: {
+        type: String,
+        default: null
+      },
+      bytes: {
+        type: Number,
+        default: null
+      }
     }
   },
   {
