@@ -3,6 +3,7 @@ import {
   getDoctorMissingProfileFields,
   hasOverlappingAvailabilitySlot,
   mapDoctorAvailabilitySlots,
+  normalizeAvailabilityAddress,
   normalizeConsultationMode,
   normalizePriceInRupees,
   validateAvailabilitySlotPayload
@@ -26,11 +27,16 @@ export const getDoctorAvailability = async (req, res) => {
 
 export const createDoctorAvailability = async (req, res) => {
   try {
+    const consultationMode = normalizeConsultationMode(req.body?.consultationMode);
+
     const payload = {
       date: String(req.body?.date || '').trim(),
       fromTime: String(req.body?.fromTime || '').trim(),
       toTime: String(req.body?.toTime || '').trim(),
-      consultationMode: normalizeConsultationMode(req.body?.consultationMode),
+      consultationMode,
+      offlineAddress: consultationMode === 'offline'
+        ? normalizeAvailabilityAddress(req.body?.offlineAddress)
+        : '',
       priceInRupees: normalizePriceInRupees(req.body?.priceInRupees)
     };
 
@@ -77,6 +83,9 @@ export const createDoctorAvailability = async (req, res) => {
         fromTime: String(insertedSlot.fromTime || '').trim(),
         toTime: String(insertedSlot.toTime || '').trim(),
         consultationMode: normalizeConsultationMode(insertedSlot.consultationMode) || 'online',
+        offlineAddress: normalizeConsultationMode(insertedSlot.consultationMode) === 'offline'
+          ? normalizeAvailabilityAddress(insertedSlot.offlineAddress)
+          : '',
         priceInRupees: Number.isFinite(Number(insertedSlot.priceInRupees))
           ? Math.max(0, Math.trunc(Number(insertedSlot.priceInRupees)))
           : 0
@@ -96,11 +105,16 @@ export const updateDoctorAvailabilitySlot = async (req, res) => {
       return res.status(400).json({ message: 'Slot id is required' });
     }
 
+    const consultationMode = normalizeConsultationMode(req.body?.consultationMode);
+
     const payload = {
       date: String(req.body?.date || '').trim(),
       fromTime: String(req.body?.fromTime || '').trim(),
       toTime: String(req.body?.toTime || '').trim(),
-      consultationMode: normalizeConsultationMode(req.body?.consultationMode),
+      consultationMode,
+      offlineAddress: consultationMode === 'offline'
+        ? normalizeAvailabilityAddress(req.body?.offlineAddress)
+        : '',
       priceInRupees: normalizePriceInRupees(req.body?.priceInRupees)
     };
 
@@ -145,6 +159,7 @@ export const updateDoctorAvailabilitySlot = async (req, res) => {
     existingSlot.fromTime = payload.fromTime;
     existingSlot.toTime = payload.toTime;
     existingSlot.consultationMode = payload.consultationMode;
+    existingSlot.offlineAddress = payload.offlineAddress;
     existingSlot.priceInRupees = payload.priceInRupees;
     await doctor.save();
 
@@ -156,6 +171,9 @@ export const updateDoctorAvailabilitySlot = async (req, res) => {
         fromTime: String(existingSlot.fromTime || '').trim(),
         toTime: String(existingSlot.toTime || '').trim(),
         consultationMode: normalizeConsultationMode(existingSlot.consultationMode) || 'online',
+        offlineAddress: normalizeConsultationMode(existingSlot.consultationMode) === 'offline'
+          ? normalizeAvailabilityAddress(existingSlot.offlineAddress)
+          : '',
         priceInRupees: Number.isFinite(Number(existingSlot.priceInRupees))
           ? Math.max(0, Math.trunc(Number(existingSlot.priceInRupees)))
           : 0

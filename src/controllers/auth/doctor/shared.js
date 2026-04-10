@@ -5,18 +5,27 @@ import {
   uploadDoctorLicenseToCloudinary,
   uploadUserAvatarToCloudinary
 } from '../../../services/cloudinaryService.js';
-import { sendVerificationOtpEmail } from '../../../services/mailService.js';
+import {
+  sendDoctorAppointmentCancelledEmail,
+  sendPatientAppointmentCancelledEmail,
+  sendVerificationOtpEmail
+} from '../../../services/mailService.js';
+import { STRIPE_CURRENCY, getStripeClient } from '../../../services/stripeService.js';
 import { generateOtp, getOtpExpiryDate, hashOtp } from '../../../utils/otp.js';
 import { generateAuthToken } from '../../../utils/token.js';
 
 export {
   Appointment,
   Doctor,
+  STRIPE_CURRENCY,
   deleteFromCloudinary,
   generateAuthToken,
   generateOtp,
   getOtpExpiryDate,
+  getStripeClient,
   hashOtp,
+  sendDoctorAppointmentCancelledEmail,
+  sendPatientAppointmentCancelledEmail,
   sendVerificationOtpEmail,
   uploadDoctorLicenseToCloudinary,
   uploadUserAvatarToCloudinary
@@ -108,6 +117,10 @@ export const normalizePriceInRupees = (priceValue) => {
   return Math.trunc(parsedPrice);
 };
 
+export const normalizeAvailabilityAddress = (addressValue) => {
+  return String(addressValue || '').trim();
+};
+
 const toMinutes = (timeValue) => {
   const [hours, minutes] = String(timeValue || '').split(':').map(Number);
 
@@ -116,6 +129,23 @@ const toMinutes = (timeValue) => {
   }
 
   return hours * 60 + minutes;
+};
+
+export const parseAppointmentDateTime = ({ date, time }) => {
+  const normalizedDate = String(date || '').trim();
+  const normalizedTime = String(time || '').trim();
+
+  if (!normalizedDate || !normalizedTime) {
+    return null;
+  }
+
+  const parsedDate = new Date(`${normalizedDate}T${normalizedTime}:00`);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return null;
+  }
+
+  return parsedDate;
 };
 
 export const isValidCalendarDate = (dateValue) => {
@@ -133,7 +163,14 @@ export const isValidCalendarDate = (dateValue) => {
   );
 };
 
-export const validateAvailabilitySlotPayload = ({ date, fromTime, toTime, consultationMode, priceInRupees }) => {
+export const validateAvailabilitySlotPayload = ({
+  date,
+  fromTime,
+  toTime,
+  consultationMode,
+  priceInRupees,
+  offlineAddress = ''
+}) => {
   if (!date || !fromTime || !toTime || !consultationMode) {
     return 'Date, from time, to time, and consultation mode are required';
   }
@@ -158,8 +195,14 @@ export const validateAvailabilitySlotPayload = ({ date, fromTime, toTime, consul
     return 'Start time must be earlier than end time';
   }
 
-  if (!allowedConsultationModes.has(normalizeConsultationMode(consultationMode))) {
+  const normalizedConsultationMode = normalizeConsultationMode(consultationMode);
+
+  if (!allowedConsultationModes.has(normalizedConsultationMode)) {
     return 'Consultation mode must be online or offline';
+  }
+
+  if (normalizedConsultationMode === 'offline' && !normalizeAvailabilityAddress(offlineAddress)) {
+    return 'Offline clinic address is required for clinic visit slots';
   }
 
   return null;
@@ -190,18 +233,25 @@ export const mapDoctorAvailabilitySlots = (doctorRecord) => {
   const rawSlots = Array.isArray(doctorRecord?.availabilitySlots) ? doctorRecord.availabilitySlots : [];
 
   return rawSlots
-    .map((slot) => ({
-      id: String(slot._id),
-      date: String(slot.date || '').trim(),
-      fromTime: String(slot.fromTime || '').trim(),
-      toTime: String(slot.toTime || '').trim(),
-      consultationMode: allowedConsultationModes.has(normalizeConsultationMode(slot.consultationMode))
+    .map((slot) => {
+      const consultationMode = allowedConsultationModes.has(normalizeConsultationMode(slot.consultationMode))
         ? normalizeConsultationMode(slot.consultationMode)
-        : 'online',
-      priceInRupees: Number.isFinite(Number(slot.priceInRupees))
-        ? Math.max(0, Math.trunc(Number(slot.priceInRupees)))
-        : 0
-    }))
+        : 'online';
+
+      return {
+        id: String(slot._id),
+        date: String(slot.date || '').trim(),
+        fromTime: String(slot.fromTime || '').trim(),
+        toTime: String(slot.toTime || '').trim(),
+        consultationMode,
+        offlineAddress: consultationMode === 'offline'
+          ? normalizeAvailabilityAddress(slot.offlineAddress)
+          : '',
+        priceInRupees: Number.isFinite(Number(slot.priceInRupees))
+          ? Math.max(0, Math.trunc(Number(slot.priceInRupees)))
+          : 0
+      };
+    })
     .sort((firstSlot, secondSlot) => {
       const dateCompare = firstSlot.date.localeCompare(secondSlot.date);
 
@@ -225,6 +275,47 @@ export const toDateTimestamp = (dateValue) => {
 
 export const getNotificationSortTimestamp = (notificationRecord) => {
   return toDateTimestamp(notificationRecord?.createdAt);
+};
+
+export const getDoctorAppointmentLifecycleStatus = (appointmentRecord, now = new Date()) => {
+  const bookingStatus = String(appointmentRecord?.bookingStatus || '').trim().toLowerCase();
+  const paymentStatus = String(appointmentRecord?.paymentStatus || '').trim().toLowerCase();
+
+  if (bookingStatus === 'cancelled') {
+    return 'cancelled';
+  }
+
+  if (bookingStatus !== 'confirmed' || paymentStatus !== 'succeeded') {
+    return 'pending';
+  }
+
+  const appointmentStart = parseAppointmentDateTime({
+    date: appointmentRecord?.appointmentDate,
+    time: appointmentRecord?.fromTime
+  });
+  const appointmentEnd = parseAppointmentDateTime({
+    date: appointmentRecord?.appointmentDate,
+    time: appointmentRecord?.toTime
+  });
+
+  if (appointmentStart && now.getTime() < appointmentStart.getTime()) {
+    return 'upcoming';
+  }
+
+  if (appointmentStart && appointmentEnd && now.getTime() >= appointmentStart.getTime() && now.getTime() < appointmentEnd.getTime()) {
+    return 'ongoing';
+  }
+
+  if (appointmentEnd && now.getTime() >= appointmentEnd.getTime()) {
+    return 'completed';
+  }
+
+  return 'upcoming';
+};
+
+const formatCurrencyInRupees = (amountInRupees) => {
+  const normalizedAmount = Math.max(0, Math.trunc(Number(amountInRupees || 0)));
+  return `Rs ${normalizedAmount.toLocaleString('en-PK')}`;
 };
 
 export const getUnreadNotificationsCount = (notifications, seenAt) => {
@@ -253,6 +344,9 @@ export const mapDoctorReviewRecord = (reviewRecord) => {
 export const mapDoctorNotificationFromAppointment = (appointmentRecord) => {
   const bookingStatus = String(appointmentRecord?.bookingStatus || '').trim();
   const paymentStatus = String(appointmentRecord?.paymentStatus || '').trim();
+  const cancelledByRole = String(appointmentRecord?.cancelledByRole || '').trim().toLowerCase();
+  const refundStatus = String(appointmentRecord?.refundStatus || '').trim().toLowerCase();
+  const refundAmountInRupees = Math.max(0, Math.trunc(Number(appointmentRecord?.refundAmountInRupees || 0)));
   const patientName = String(appointmentRecord?.patientName || '').trim() || 'Patient';
   const appointmentDate = String(appointmentRecord?.appointmentDate || '').trim();
   const fromTime = String(appointmentRecord?.fromTime || '').trim();
@@ -260,13 +354,29 @@ export const mapDoctorNotificationFromAppointment = (appointmentRecord) => {
 
   if (bookingStatus === 'cancelled') {
     const createdAt = appointmentRecord?.cancelledAt || appointmentRecord?.updatedAt || appointmentRecord?.createdAt;
+    let title = 'Appointment Cancelled';
+    let message = `${patientName} cancelled the appointment on ${appointmentDate} (${fromTime} - ${toTime}).`;
+
+    if (cancelledByRole === 'doctor') {
+      title = 'Appointment Cancelled By You';
+
+      if (refundStatus === 'succeeded' && refundAmountInRupees > 0) {
+        message = `You cancelled the appointment with ${patientName} on ${appointmentDate} (${fromTime} - ${toTime}). Refund of ${formatCurrencyInRupees(refundAmountInRupees)} was processed to the patient. Admin commission is retained and your payout is set to Rs 0.`;
+      } else if (refundStatus === 'pending' && refundAmountInRupees > 0) {
+        message = `You cancelled the appointment with ${patientName} on ${appointmentDate} (${fromTime} - ${toTime}). Refund of ${formatCurrencyInRupees(refundAmountInRupees)} is being processed to the patient. Admin commission is retained and your payout is set to Rs 0.`;
+      } else {
+        message = `You cancelled the appointment with ${patientName} on ${appointmentDate} (${fromTime} - ${toTime}). Admin commission is retained and your payout is set to Rs 0.`;
+      }
+    } else if (cancelledByRole === 'patient') {
+      message = `${patientName} cancelled the appointment on ${appointmentDate} (${fromTime} - ${toTime}). No refund was processed.`;
+    }
 
     return {
       id: `${String(appointmentRecord?._id || '')}:cancelled`,
       appointmentId: String(appointmentRecord?._id || ''),
       type: 'appointment_cancelled',
-      title: 'Appointment Cancelled',
-      message: `${patientName} cancelled the appointment on ${appointmentDate} (${fromTime} - ${toTime}).`,
+      title,
+      message,
       createdAt: createdAt ? new Date(createdAt).toISOString() : null
     };
   }
@@ -305,5 +415,39 @@ export const mapDoctorScheduleRecord = (appointmentRecord) => {
     cancelledAt: appointmentRecord?.cancelledAt || null,
     createdAt: appointmentRecord?.createdAt || null,
     updatedAt: appointmentRecord?.updatedAt || null
+  };
+};
+
+const mapDoctorAppointmentStatusLabel = (lifecycleStatus) => {
+  if (lifecycleStatus === 'cancelled') {
+    return 'Cancelled';
+  }
+
+  if (lifecycleStatus === 'ongoing') {
+    return 'Ongoing';
+  }
+
+  return 'Upcoming';
+};
+
+export const mapDoctorAppointmentForDashboard = (appointmentRecord, { lifecycleStatus = null } = {}) => {
+  const resolvedLifecycleStatus = lifecycleStatus || getDoctorAppointmentLifecycleStatus(appointmentRecord);
+
+  return {
+    id: String(appointmentRecord?._id || ''),
+    status: mapDoctorAppointmentStatusLabel(resolvedLifecycleStatus),
+    statusCode: resolvedLifecycleStatus,
+    date: String(appointmentRecord?.appointmentDate || '').trim(),
+    fromTime: String(appointmentRecord?.fromTime || '').trim(),
+    toTime: String(appointmentRecord?.toTime || '').trim(),
+    consultationMode: normalizeConsultationMode(appointmentRecord?.consultationMode) || 'online',
+    amountInRupees: Math.max(0, Math.trunc(Number(appointmentRecord?.amountInRupees || 0))),
+    cancelledAt: appointmentRecord?.cancelledAt || null,
+    patient: {
+      id: String(appointmentRecord?.patientId || ''),
+      name: String(appointmentRecord?.patientName || '').trim() || 'Patient',
+      email: String(appointmentRecord?.patientEmail || '').trim() || 'N/A',
+      phoneNumber: String(appointmentRecord?.contactPhoneNumber || '').trim() || 'N/A'
+    }
   };
 };

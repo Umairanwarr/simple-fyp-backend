@@ -23,7 +23,9 @@ export const getPatientNotifications = async (req, res) => {
         $in: ['confirmed', 'cancelled']
       }
     })
-      .select('doctorName appointmentDate fromTime toTime bookingStatus paymentStatus paidAt cancelledAt createdAt updatedAt')
+      .select(
+        'doctorName appointmentDate fromTime toTime bookingStatus paymentStatus paidAt cancelledAt cancelledByRole refundStatus refundAmountInRupees createdAt updatedAt'
+      )
       .sort({ updatedAt: -1, createdAt: -1 })
       .limit(40)
       .lean();

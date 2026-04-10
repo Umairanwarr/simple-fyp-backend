@@ -7,8 +7,13 @@ import {
   getOtpExpiryDate,
   getPatientAvatarUrl,
   hashOtp,
+  isValidPatientProfileEmail,
+  mapPatientProfilePayload,
+  mapPatientSessionPayload,
   normalizeEmail,
+  normalizePhoneNumber,
   parseNames,
+  phoneNumberPattern,
   sendVerificationOtpEmail,
   uploadUserAvatarToCloudinary,
   verifyFirebaseIdToken
@@ -278,14 +283,7 @@ export const loginPatient = async (req, res) => {
     return res.status(200).json({
       message: 'Login successful',
       token,
-      patient: {
-        id: patient._id,
-        email: patient.email,
-        firstName: patient.firstName,
-        lastName: patient.lastName,
-        role: patient.role,
-        avatarUrl: getPatientAvatarUrl(patient)
-      }
+      patient: mapPatientSessionPayload(patient)
     });
   } catch (error) {
     return res.status(500).json({ message: 'Server error', error: error.message });
@@ -317,17 +315,112 @@ export const updatePatientAvatar = async (req, res) => {
 
     return res.status(200).json({
       message: 'Avatar updated successfully',
-      patient: {
-        id: patient._id,
-        email: patient.email,
-        firstName: patient.firstName,
-        lastName: patient.lastName,
-        role: patient.role,
-        avatarUrl: getPatientAvatarUrl(patient)
-      }
+      patient: mapPatientSessionPayload(patient),
+      profile: mapPatientProfilePayload(patient)
     });
   } catch (error) {
     return res.status(500).json({ message: 'Could not update avatar', error: error.message });
+  }
+};
+
+export const getPatientProfile = async (req, res) => {
+  try {
+    const patient = await Patient.findById(req.user?.id);
+
+    if (!patient) {
+      return res.status(404).json({ message: 'Patient not found' });
+    }
+
+    return res.status(200).json({
+      profile: mapPatientProfilePayload(patient),
+      patient: mapPatientSessionPayload(patient)
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Could not fetch patient profile', error: error.message });
+  }
+};
+
+export const updatePatientProfile = async (req, res) => {
+  try {
+    const firstName = String(req.body?.firstName || '').trim();
+    const lastName = String(req.body?.lastName || '').trim();
+    const normalizedEmail = normalizeEmail(req.body?.email);
+    const normalizedPhone = normalizePhoneNumber(req.body?.phone);
+    const location = String(req.body?.location || '').trim();
+    const missingFields = [];
+
+    if (!firstName) {
+      missingFields.push('firstName');
+    }
+
+    if (!lastName) {
+      missingFields.push('lastName');
+    }
+
+    if (!normalizedEmail) {
+      missingFields.push('email');
+    }
+
+    if (!normalizedPhone) {
+      missingFields.push('phone');
+    }
+
+    if (!location) {
+      missingFields.push('location');
+    }
+
+    if (missingFields.length > 0) {
+      return res.status(400).json({
+        message: 'First name, last name, email, phone number, and location are required',
+        missingFields
+      });
+    }
+
+    if (!isValidPatientProfileEmail(normalizedEmail)) {
+      return res.status(400).json({ message: 'Please provide a valid email address' });
+    }
+
+    if (!phoneNumberPattern.test(normalizedPhone)) {
+      return res.status(400).json({ message: 'Phone number must contain only digits and be 7 to 15 digits long' });
+    }
+
+    const patient = await Patient.findById(req.user?.id);
+
+    if (!patient) {
+      return res.status(404).json({ message: 'Patient not found' });
+    }
+
+    const existingPatientWithEmail = await Patient.findOne({
+      email: normalizedEmail,
+      _id: {
+        $ne: patient._id
+      }
+    })
+      .select('_id')
+      .lean();
+
+    if (existingPatientWithEmail) {
+      return res.status(409).json({ message: 'Email is already in use by another account' });
+    }
+
+    patient.firstName = firstName;
+    patient.lastName = lastName;
+    patient.email = normalizedEmail;
+    patient.phone = normalizedPhone;
+    patient.location = location;
+    await patient.save();
+
+    return res.status(200).json({
+      message: 'Profile updated successfully',
+      profile: mapPatientProfilePayload(patient),
+      patient: mapPatientSessionPayload(patient)
+    });
+  } catch (error) {
+    if (Number(error?.code) === 11000) {
+      return res.status(409).json({ message: 'Email is already in use by another account' });
+    }
+
+    return res.status(500).json({ message: 'Could not update patient profile', error: error.message });
   }
 };
 
@@ -408,14 +501,7 @@ export const loginPatientWithGoogle = async (req, res) => {
     return res.status(200).json({
       message: 'Google login successful',
       token,
-      patient: {
-        id: patient._id,
-        email: patient.email,
-        firstName: patient.firstName,
-        lastName: patient.lastName,
-        role: patient.role,
-        avatarUrl: getPatientAvatarUrl(patient)
-      }
+      patient: mapPatientSessionPayload(patient)
     });
   } catch (error) {
     if (/not configured/i.test(String(error?.message || ''))) {

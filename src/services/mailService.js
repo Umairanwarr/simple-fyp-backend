@@ -319,14 +319,41 @@ export const sendPatientAppointmentCancelledEmail = async ({
   fromTime,
   toTime,
   consultationMode,
-  amountInRupees
+  amountInRupees,
+  cancelledByRole = '',
+  refundStatus = 'not_applicable',
+  refundAmountInRupees = 0
 }) => {
   ensureSmtpCredentials();
 
   const safePatientName = String(patientName || '').trim() || 'Patient';
   const safeDoctorName = String(doctorName || '').trim() || 'Doctor';
+  const safeCancelledByRole = String(cancelledByRole || '').trim().toLowerCase();
+  const safeRefundStatus = String(refundStatus || '').trim().toLowerCase();
+  const safeRefundAmountInRupees = Math.max(0, Math.trunc(Number(refundAmountInRupees || 0)));
   const modeLabel = consultationMode === 'offline' ? 'Offline (Clinic Visit)' : 'Online Consultation';
   const amountText = formatCurrencyInRupees(amountInRupees);
+
+  let cancellationSummaryText = `Your appointment with ${safeDoctorName} has been cancelled.`;
+  let refundPolicyText = 'No refund will be processed for this cancellation.';
+  let refundPolicyHtml = '<strong>No refund will be processed for this cancellation.</strong>';
+
+  if (safeCancelledByRole === 'doctor') {
+    cancellationSummaryText = `Your appointment with ${safeDoctorName} has been cancelled by your doctor.`;
+
+    if (safeRefundStatus === 'succeeded' && safeRefundAmountInRupees > 0) {
+      const refundAmountText = formatCurrencyInRupees(safeRefundAmountInRupees);
+      refundPolicyText = `Refund of ${refundAmountText} has been processed to your payment method. Admin commission is retained.`;
+      refundPolicyHtml = `<strong style="color: #047857;">Refund of ${refundAmountText} has been processed to your payment method. Admin commission is retained.</strong>`;
+    } else if (safeRefundStatus === 'pending' && safeRefundAmountInRupees > 0) {
+      const refundAmountText = formatCurrencyInRupees(safeRefundAmountInRupees);
+      refundPolicyText = `Refund of ${refundAmountText} is being processed to your payment method. Admin commission is retained.`;
+      refundPolicyHtml = `<strong style="color: #0369a1;">Refund of ${refundAmountText} is being processed to your payment method. Admin commission is retained.</strong>`;
+    } else {
+      refundPolicyText = 'Please contact support for the latest refund status.';
+      refundPolicyHtml = '<strong style="color: #b45309;">Please contact support for the latest refund status.</strong>';
+    }
+  }
 
   const mailOptions = {
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
@@ -335,18 +362,18 @@ export const sendPatientAppointmentCancelledEmail = async ({
     text: [
       `Hi ${safePatientName},`,
       '',
-      `Your appointment with ${safeDoctorName} has been cancelled.`,
+      cancellationSummaryText,
       `Date: ${appointmentDate}`,
       `Time: ${fromTime} - ${toTime}`,
       `Mode: ${modeLabel}`,
       `Paid Amount: ${amountText}`,
-      'No refund will be processed for this cancellation.'
+      refundPolicyText
     ].join('\n'),
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; color: #1f2937;">
         <h2 style="margin-bottom: 8px;">Appointment Cancelled</h2>
         <p style="margin: 0 0 16px;">Hi ${safePatientName},</p>
-        <p style="margin: 0 0 16px;">Your appointment with <strong>${safeDoctorName}</strong> has been cancelled.</p>
+        <p style="margin: 0 0 16px;">${cancellationSummaryText.replace(safeDoctorName, `<strong>${safeDoctorName}</strong>`)}</p>
 
         <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; margin-bottom: 14px;">
           <p style="margin: 0 0 8px;"><strong>Date:</strong> ${appointmentDate}</p>
@@ -355,7 +382,7 @@ export const sendPatientAppointmentCancelledEmail = async ({
           <p style="margin: 0;"><strong>Paid Amount:</strong> ${amountText}</p>
         </div>
 
-        <p style="margin: 0; color: #b91c1c;"><strong>No refund will be processed for this cancellation.</strong></p>
+        <p style="margin: 0; color: #b91c1c;">${refundPolicyHtml}</p>
       </div>
     `
   };
@@ -372,15 +399,44 @@ export const sendDoctorAppointmentCancelledEmail = async ({
   fromTime,
   toTime,
   consultationMode,
-  amountInRupees
+  amountInRupees,
+  cancelledByRole = '',
+  refundStatus = 'not_applicable',
+  refundAmountInRupees = 0
 }) => {
   ensureSmtpCredentials();
 
   const safeDoctorName = String(doctorName || '').trim() || 'Doctor';
   const safePatientName = String(patientName || '').trim() || 'Patient';
   const safePatientEmail = String(patientEmail || '').trim() || 'Not provided';
+  const safeCancelledByRole = String(cancelledByRole || '').trim().toLowerCase();
+  const safeRefundStatus = String(refundStatus || '').trim().toLowerCase();
+  const safeRefundAmountInRupees = Math.max(0, Math.trunc(Number(refundAmountInRupees || 0)));
   const modeLabel = consultationMode === 'offline' ? 'Offline (Clinic Visit)' : 'Online Consultation';
   const amountText = formatCurrencyInRupees(amountInRupees);
+
+  let cancellationSummaryText = `An appointment with ${safePatientName} has been cancelled.`;
+  let refundPolicyText = 'No refund was processed for this cancellation.';
+  let refundPolicyHtml = '<strong>No refund was processed for this cancellation.</strong>';
+
+  if (safeCancelledByRole === 'doctor') {
+    cancellationSummaryText = `You cancelled the appointment with ${safePatientName}.`;
+
+    if (safeRefundStatus === 'succeeded' && safeRefundAmountInRupees > 0) {
+      const refundAmountText = formatCurrencyInRupees(safeRefundAmountInRupees);
+      refundPolicyText = `Refund of ${refundAmountText} was processed to the patient. Admin commission is retained and your payout is set to Rs 0.`;
+      refundPolicyHtml = `<strong style="color: #047857;">Refund of ${refundAmountText} was processed to the patient. Admin commission is retained and your payout is set to Rs 0.</strong>`;
+    } else if (safeRefundStatus === 'pending' && safeRefundAmountInRupees > 0) {
+      const refundAmountText = formatCurrencyInRupees(safeRefundAmountInRupees);
+      refundPolicyText = `Refund of ${refundAmountText} is being processed to the patient. Admin commission is retained and your payout is set to Rs 0.`;
+      refundPolicyHtml = `<strong style="color: #0369a1;">Refund of ${refundAmountText} is being processed to the patient. Admin commission is retained and your payout is set to Rs 0.</strong>`;
+    } else {
+      refundPolicyText = 'The appointment is cancelled and your payout is set to Rs 0.';
+      refundPolicyHtml = '<strong style="color: #b45309;">The appointment is cancelled and your payout is set to Rs 0.</strong>';
+    }
+  } else if (safeCancelledByRole === 'patient') {
+    cancellationSummaryText = `An appointment with ${safePatientName} has been cancelled by the patient.`;
+  }
 
   const mailOptions = {
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
@@ -389,20 +445,20 @@ export const sendDoctorAppointmentCancelledEmail = async ({
     text: [
       `Hi ${safeDoctorName},`,
       '',
-      `An appointment with ${safePatientName} has been cancelled.`,
+      cancellationSummaryText,
       `Date: ${appointmentDate}`,
       `Time: ${fromTime} - ${toTime}`,
       `Mode: ${modeLabel}`,
       `Slot Price: ${amountText}`,
       `Patient Name: ${safePatientName}`,
       `Patient Email: ${safePatientEmail}`,
-      'No refund was processed for this cancellation.'
+      refundPolicyText
     ].join('\n'),
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; color: #1f2937;">
         <h2 style="margin-bottom: 8px;">Appointment Cancellation Notice</h2>
         <p style="margin: 0 0 16px;">Hi ${safeDoctorName},</p>
-        <p style="margin: 0 0 16px;">An appointment with <strong>${safePatientName}</strong> has been cancelled.</p>
+        <p style="margin: 0 0 16px;">${cancellationSummaryText.replace(safePatientName, `<strong>${safePatientName}</strong>`)}</p>
 
         <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; margin-bottom: 14px;">
           <p style="margin: 0 0 8px;"><strong>Date:</strong> ${appointmentDate}</p>
@@ -416,7 +472,7 @@ export const sendDoctorAppointmentCancelledEmail = async ({
           <p style="margin: 0;"><strong>Patient Email:</strong> ${safePatientEmail}</p>
         </div>
 
-        <p style="margin: 14px 0 0; color: #b91c1c;"><strong>No refund was processed for this cancellation.</strong></p>
+        <p style="margin: 14px 0 0; color: #b91c1c;">${refundPolicyHtml}</p>
       </div>
     `
   };

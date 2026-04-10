@@ -190,6 +190,12 @@ const doctorSchema = new mongoose.Schema(
           enum: ['online', 'offline'],
           default: 'online'
         },
+        offlineAddress: {
+          type: String,
+          default: '',
+          trim: true,
+          maxlength: 240
+        },
         priceInRupees: {
           type: Number,
           min: 0,

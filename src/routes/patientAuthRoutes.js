@@ -10,6 +10,7 @@ import {
   getPatientFavoriteDoctors,
   getPatientPendingReviewAppointment,
   getPatientNotifications,
+  getPatientProfile,
   loginPatientWithGoogle,
   loginPatient,
   markPatientNotificationsAsRead,
@@ -20,6 +21,7 @@ import {
   skipPatientAppointmentReview,
   submitPatientAppointmentReview,
   sendPatientVerificationOtp,
+  updatePatientProfile,
   updatePatientAvatar,
   verifyPatientOtp
 } from '../controllers/auth/patient/index.js';
@@ -35,6 +37,8 @@ router.post('/reset-password', resetPatientPassword);
 router.post('/login', loginPatient);
 router.post('/google-login', loginPatientWithGoogle);
 router.get('/doctors', searchDoctorsForPatients);
+router.get('/profile', requireRoleAuth(['patient']), getPatientProfile);
+router.patch('/profile', requireRoleAuth(['patient']), updatePatientProfile);
 router.get('/doctors/:doctorId/profile', requireRoleAuth(['patient']), getDoctorProfileForPatient);
 router.get('/appointments', requireRoleAuth(['patient']), getPatientAppointments);
 router.get('/appointments/history', requireRoleAuth(['patient']), getPatientAppointmentHistory);

@@ -135,6 +135,36 @@ const appointmentSchema = new mongoose.Schema(
       type: Date,
       default: null
     },
+    cancelledByRole: {
+      type: String,
+      default: '',
+      trim: true,
+      lowercase: true
+    },
+    refundStatus: {
+      type: String,
+      enum: ['not_requested', 'pending', 'succeeded', 'failed', 'not_applicable'],
+      default: 'not_requested'
+    },
+    refundAmountInRupees: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    refundId: {
+      type: String,
+      default: '',
+      trim: true
+    },
+    refundFailureReason: {
+      type: String,
+      default: '',
+      trim: true
+    },
+    refundedAt: {
+      type: Date,
+      default: null
+    },
     cancellationAcknowledgedNoRefund: {
       type: Boolean,
       default: false

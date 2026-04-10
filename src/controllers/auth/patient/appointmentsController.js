@@ -421,6 +421,12 @@ export const cancelPatientAppointment = async (req, res) => {
 
     appointment.bookingStatus = 'cancelled';
     appointment.cancelledAt = new Date();
+    appointment.cancelledByRole = 'patient';
+    appointment.refundStatus = 'not_applicable';
+    appointment.refundAmountInRupees = 0;
+    appointment.refundId = '';
+    appointment.refundFailureReason = '';
+    appointment.refundedAt = null;
     appointment.cancellationAcknowledgedNoRefund = true;
     await appointment.save();
 
@@ -441,6 +447,9 @@ export const cancelPatientAppointment = async (req, res) => {
         to: appointment.patientEmail,
         patientName: appointment.patientName,
         doctorName: appointment.doctorName,
+        cancelledByRole: 'patient',
+        refundStatus: 'not_applicable',
+        refundAmountInRupees: 0,
         ...cancellationEmailPayload
       })
     ];
@@ -454,6 +463,9 @@ export const cancelPatientAppointment = async (req, res) => {
           doctorName: String(doctorForEmail?.fullName || '').trim() || appointment.doctorName,
           patientName: appointment.patientName,
           patientEmail: appointment.patientEmail,
+          cancelledByRole: 'patient',
+          refundStatus: 'not_applicable',
+          refundAmountInRupees: 0,
           ...cancellationEmailPayload
         })
       );

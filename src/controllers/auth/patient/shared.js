@@ -40,13 +40,72 @@ export {
 
 export const normalizeEmail = (email) => String(email || '').toLowerCase().trim();
 
-const FIREBASE_WEB_API_KEY =
-  process.env.FIREBASE_WEB_API_KEY ||
-  process.env.FIREBASE_API_KEY ||
-  '';
+const patientProfileEmailPattern = /^\S+@\S+\.\S+$/;
 
 export const getPatientAvatarUrl = (patientRecord) => {
   return String(patientRecord?.avatarDocument?.url || '').trim();
+};
+
+export const isValidPatientProfileEmail = (email) => {
+  return patientProfileEmailPattern.test(String(email || '').trim());
+};
+
+export const getPatientMissingProfileFields = (patientRecord) => {
+  const missingFields = [];
+
+  if (!String(patientRecord?.firstName || '').trim()) {
+    missingFields.push('firstName');
+  }
+
+  if (!String(patientRecord?.lastName || '').trim()) {
+    missingFields.push('lastName');
+  }
+
+  if (!String(patientRecord?.email || '').trim()) {
+    missingFields.push('email');
+  }
+
+  if (!String(patientRecord?.phone || '').trim()) {
+    missingFields.push('phone');
+  }
+
+  if (!String(patientRecord?.location || '').trim()) {
+    missingFields.push('location');
+  }
+
+  if (!getPatientAvatarUrl(patientRecord)) {
+    missingFields.push('avatar');
+  }
+
+  return missingFields;
+};
+
+export const mapPatientSessionPayload = (patientRecord) => {
+  return {
+    id: patientRecord?._id,
+    email: String(patientRecord?.email || '').trim().toLowerCase(),
+    firstName: String(patientRecord?.firstName || '').trim(),
+    lastName: String(patientRecord?.lastName || '').trim(),
+    phone: String(patientRecord?.phone || '').trim(),
+    location: String(patientRecord?.location || '').trim(),
+    role: patientRecord?.role,
+    avatarUrl: getPatientAvatarUrl(patientRecord)
+  };
+};
+
+export const mapPatientProfilePayload = (patientRecord) => {
+  const missingFields = getPatientMissingProfileFields(patientRecord);
+
+  return {
+    firstName: String(patientRecord?.firstName || '').trim(),
+    lastName: String(patientRecord?.lastName || '').trim(),
+    email: String(patientRecord?.email || '').trim().toLowerCase(),
+    phone: String(patientRecord?.phone || '').trim(),
+    location: String(patientRecord?.location || '').trim(),
+    avatarUrl: getPatientAvatarUrl(patientRecord),
+    isProfileComplete: missingFields.length === 0,
+    missingFields
+  };
 };
 
 export const getDoctorAvatarUrl = (doctorRecord) => {
@@ -257,6 +316,9 @@ export const getDoctorRatingSummaryFromReviews = (reviews = []) => {
 export const mapPatientNotificationFromAppointment = (appointmentRecord) => {
   const bookingStatus = String(appointmentRecord?.bookingStatus || '').trim();
   const paymentStatus = String(appointmentRecord?.paymentStatus || '').trim();
+  const cancelledByRole = String(appointmentRecord?.cancelledByRole || '').trim().toLowerCase();
+  const refundStatus = String(appointmentRecord?.refundStatus || '').trim().toLowerCase();
+  const refundAmountInRupees = Math.max(0, Math.trunc(Number(appointmentRecord?.refundAmountInRupees || 0)));
 
   const appointmentDate = String(appointmentRecord?.appointmentDate || '').trim();
   const fromTime = String(appointmentRecord?.fromTime || '').trim();
@@ -272,13 +334,27 @@ export const mapPatientNotificationFromAppointment = (appointmentRecord) => {
     ? appointmentRecord?.cancelledAt || appointmentRecord?.updatedAt || appointmentRecord?.createdAt
     : appointmentRecord?.paidAt || appointmentRecord?.createdAt || appointmentRecord?.updatedAt;
 
+  let cancellationMessage = `Your appointment with ${doctorName} on ${appointmentDate} (${fromTime} - ${toTime}) was cancelled.`;
+
+  if (cancelledByRole === 'doctor') {
+    if (refundStatus === 'succeeded' && refundAmountInRupees > 0) {
+      cancellationMessage = `Your appointment with ${doctorName} on ${appointmentDate} (${fromTime} - ${toTime}) was cancelled by the doctor. Refund of Rs ${refundAmountInRupees.toLocaleString('en-PK')} has been processed.`;
+    } else if (refundStatus === 'pending' && refundAmountInRupees > 0) {
+      cancellationMessage = `Your appointment with ${doctorName} on ${appointmentDate} (${fromTime} - ${toTime}) was cancelled by the doctor. Refund of Rs ${refundAmountInRupees.toLocaleString('en-PK')} is being processed.`;
+    } else {
+      cancellationMessage = `Your appointment with ${doctorName} on ${appointmentDate} (${fromTime} - ${toTime}) was cancelled by the doctor. Please contact support for refund updates.`;
+    }
+  } else if (cancelledByRole === 'patient') {
+    cancellationMessage = `Your appointment with ${doctorName} on ${appointmentDate} (${fromTime} - ${toTime}) was cancelled. No refund will be processed.`;
+  }
+
   return {
     id: `${String(appointmentRecord?._id || '')}:${isCancelled ? 'cancelled' : 'booked'}`,
     appointmentId: String(appointmentRecord?._id || ''),
     type: isCancelled ? 'appointment_cancelled' : 'appointment_booked',
     title: isCancelled ? 'Appointment Cancelled' : 'Appointment Confirmed',
     message: isCancelled
-      ? `Your appointment with ${doctorName} on ${appointmentDate} (${fromTime} - ${toTime}) was cancelled. No refund will be processed.`
+      ? cancellationMessage
       : `Your appointment with ${doctorName} on ${appointmentDate} (${fromTime} - ${toTime}) is booked successfully.`,
     createdAt: createdAt ? new Date(createdAt).toISOString() : null
   };
@@ -392,6 +468,9 @@ export const mapDoctorSlotsByModeForPatientProfile = (doctorRecord) => {
       const date = String(slot?.date || '').trim();
       const fromTime = String(slot?.fromTime || '').trim();
       const toTime = String(slot?.toTime || '').trim();
+      const offlineAddress = consultationMode === 'offline'
+        ? String(slot?.offlineAddress || '').trim()
+        : '';
       const parsedPriceInRupees = Number(slot?.priceInRupees);
       const priceInRupees = Number.isFinite(parsedPriceInRupees)
         ? Math.max(0, Math.trunc(parsedPriceInRupees))
@@ -407,6 +486,7 @@ export const mapDoctorSlotsByModeForPatientProfile = (doctorRecord) => {
         fromTime,
         toTime,
         consultationMode,
+        offlineAddress,
         priceInRupees
       };
     })
@@ -495,12 +575,18 @@ export const parseNames = (displayName, email) => {
 };
 
 export const verifyFirebaseIdToken = async (idToken) => {
-  if (!FIREBASE_WEB_API_KEY) {
+  const firebaseWebApiKey = String(
+    process.env.FIREBASE_WEB_API_KEY ||
+    process.env.FIREBASE_API_KEY ||
+    ''
+  ).trim();
+
+  if (!firebaseWebApiKey) {
     throw new Error('Firebase API key is not configured on backend');
   }
 
   const response = await fetch(
-    `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${FIREBASE_WEB_API_KEY}`,
+    `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${firebaseWebApiKey}`,
     {
       method: 'POST',
       headers: {

@@ -20,6 +20,18 @@ const patientSchema = new mongoose.Schema(
       required: true,
       trim: true
     },
+    phone: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 20
+    },
+    location: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 240
+    },
     dob: {
       type: Date,
       required: true
