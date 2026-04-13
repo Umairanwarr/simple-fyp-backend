@@ -47,6 +47,90 @@ const formatAddressBlock = (address = {}) => {
   return lineParts.join(', ');
 };
 
+const formatDateLabel = (dateValue) => {
+  if (!dateValue) {
+    return 'N/A';
+  }
+
+  const parsedDate = new Date(dateValue);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return 'N/A';
+  }
+
+  return parsedDate.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
+};
+
+export const sendDoctorSubscriptionLifecycleEmail = async ({
+  to,
+  doctorName,
+  eventType,
+  planName,
+  amountInRupees = 0,
+  expiresAt = null
+}) => {
+  ensureSmtpCredentials();
+
+  const safeDoctorName = String(doctorName || '').trim() || 'Doctor';
+  const safePlanName = String(planName || '').trim() || 'Plan';
+  const safeEventType = String(eventType || '').trim().toLowerCase();
+  const expiresAtLabel = formatDateLabel(expiresAt);
+  const amountLabel = formatCurrencyInRupees(amountInRupees);
+
+  let subject = 'Subscription Update';
+  let summary = `Your ${safePlanName} subscription has been updated.`;
+
+  if (safeEventType === 'plan_bought') {
+    subject = `${safePlanName} Plan Activated`;
+    summary = `Your ${safePlanName} subscription has been activated successfully.`;
+  } else if (safeEventType === 'plan_renewed') {
+    subject = `${safePlanName} Plan Renewed`;
+    summary = `Your ${safePlanName} subscription has been renewed successfully.`;
+  } else if (safeEventType === 'plan_updated') {
+    subject = `Plan Updated To ${safePlanName}`;
+    summary = `Your subscription has been updated to ${safePlanName}.`;
+  } else if (safeEventType === 'plan_cancelled') {
+    subject = `${safePlanName} Plan Cancelled`;
+    summary = `Your ${safePlanName} subscription has been cancelled and your account is now on Platinum.`;
+  } else if (safeEventType === 'plan_expired') {
+    subject = `${safePlanName} Plan Expired`;
+    summary = `Your ${safePlanName} subscription expired and your account is now on Platinum.`;
+  }
+
+  const mailOptions = {
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject,
+    text: [
+      `Hi ${safeDoctorName},`,
+      '',
+      summary,
+      `Plan: ${safePlanName}`,
+      `Amount: ${amountLabel}`,
+      `Expires On: ${expiresAtLabel}`
+    ].join('\n'),
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; color: #1f2937;">
+        <h2 style="margin-bottom: 8px;">${subject}</h2>
+        <p style="margin: 0 0 16px;">Hi ${safeDoctorName},</p>
+        <p style="margin: 0 0 16px;">${summary}</p>
+
+        <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px 16px;">
+          <p style="margin: 0 0 8px;"><strong>Plan:</strong> ${safePlanName}</p>
+          <p style="margin: 0 0 8px;"><strong>Amount:</strong> ${amountLabel}</p>
+          <p style="margin: 0;"><strong>Expires On:</strong> ${expiresAtLabel}</p>
+        </div>
+      </div>
+    `
+  };
+
+  await getTransporter().sendMail(mailOptions);
+};
+
 export const sendVerificationOtpEmail = async ({ to, firstName, otp }) => {
   ensureSmtpCredentials();
 

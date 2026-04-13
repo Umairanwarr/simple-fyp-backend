@@ -9,6 +9,7 @@ import {
   sendPatientAppointmentRescheduledEmail,
   sendPatientAppointmentCancelledEmail
 } from './shared.js';
+import { Patient } from '../../../models/Patient.js';
 
 const getAppointmentStartSortTimestamp = (appointmentRecord) => {
   const appointmentDate = String(appointmentRecord?.appointmentDate || '').trim();
@@ -79,6 +80,30 @@ export const getDoctorAppointments = async (req, res) => {
       )
       .lean();
 
+    const patientIds = [...new Set(
+      appointments
+        .map((appointment) => String(appointment?.patientId || '').trim())
+        .filter((patientId) => mongoose.Types.ObjectId.isValid(patientId))
+    )];
+
+    const patientRecords = patientIds.length > 0
+      ? await Patient.find({
+          _id: {
+            $in: patientIds
+          }
+        })
+          .select('_id avatarDocument')
+          .lean()
+      : [];
+
+    const patientAvatarById = new Map(
+      patientRecords.map((patientRecord) => {
+        const patientId = String(patientRecord?._id || '').trim();
+        const avatarUrl = String(patientRecord?.avatarDocument?.url || '').trim();
+        return [patientId, avatarUrl];
+      })
+    );
+
     const now = new Date();
 
     const categorizedAppointments = appointments
@@ -92,28 +117,38 @@ export const getDoctorAppointments = async (req, res) => {
         };
       });
 
+    const mapAppointmentWithPatientAvatar = (entry) => {
+      const mappedAppointment = mapDoctorAppointmentForDashboard(entry.appointment, {
+        lifecycleStatus: entry.lifecycleStatus
+      });
+
+      const patientId = String(mappedAppointment?.patient?.id || '').trim();
+
+      if (!mappedAppointment.patient) {
+        mappedAppointment.patient = {};
+      }
+
+      mappedAppointment.patient.avatarUrl = patientAvatarById.get(patientId) || '';
+
+      return mappedAppointment;
+    };
+
     const upcomingAppointments = categorizedAppointments
       .filter((entry) => entry.lifecycleStatus === 'upcoming')
       .sort((firstEntry, secondEntry) => firstEntry.sortTimestamp - secondEntry.sortTimestamp)
-      .map((entry) => mapDoctorAppointmentForDashboard(entry.appointment, {
-        lifecycleStatus: entry.lifecycleStatus
-      }));
+      .map((entry) => mapAppointmentWithPatientAvatar(entry));
 
     const ongoingAppointments = categorizedAppointments
       .filter((entry) => entry.lifecycleStatus === 'ongoing')
       .sort((firstEntry, secondEntry) => firstEntry.sortTimestamp - secondEntry.sortTimestamp)
-      .map((entry) => mapDoctorAppointmentForDashboard(entry.appointment, {
-        lifecycleStatus: entry.lifecycleStatus
-      }));
+      .map((entry) => mapAppointmentWithPatientAvatar(entry));
 
     const cancelledAppointments = categorizedAppointments
       .filter((entry) => entry.lifecycleStatus === 'cancelled')
       .sort((firstEntry, secondEntry) => {
         return getCancelledSortTimestamp(secondEntry.appointment) - getCancelledSortTimestamp(firstEntry.appointment);
       })
-      .map((entry) => mapDoctorAppointmentForDashboard(entry.appointment, {
-        lifecycleStatus: entry.lifecycleStatus
-      }));
+      .map((entry) => mapAppointmentWithPatientAvatar(entry));
 
     return res.status(200).json({
       upcomingAppointments,

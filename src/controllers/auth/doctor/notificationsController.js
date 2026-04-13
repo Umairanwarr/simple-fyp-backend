@@ -3,8 +3,11 @@ import {
   Doctor,
   getNotificationSortTimestamp,
   getUnreadNotificationsCount,
-  mapDoctorNotificationFromAppointment
+  mapDoctorNotificationFromAppointment,
+  mapDoctorNotificationFromMediaModeration
 } from './shared.js';
+import { DoctorMedia } from '../../../models/DoctorMedia.js';
+import { DoctorSubscriptionNotification } from '../../../models/DoctorSubscriptionNotification.js';
 
 export const getDoctorNotifications = async (req, res) => {
   try {
@@ -16,26 +19,70 @@ export const getDoctorNotifications = async (req, res) => {
       return res.status(404).json({ message: 'Doctor not found' });
     }
 
-    const appointments = await Appointment.find({
-      doctorId: req.user?.id,
-      paymentStatus: 'succeeded',
-      bookingStatus: {
-        $in: ['confirmed', 'cancelled']
-      }
-    })
-      .select(
-        'patientName appointmentDate fromTime toTime bookingStatus paymentStatus paidAt cancelledAt cancelledByRole refundStatus refundAmountInRupees createdAt updatedAt'
-      )
-      .sort({ updatedAt: -1, createdAt: -1 })
-      .limit(40)
-      .lean();
+    const [appointments, mediaRecords, subscriptionNotifications] = await Promise.all([
+      Appointment.find({
+        doctorId: req.user?.id,
+        paymentStatus: 'succeeded',
+        bookingStatus: {
+          $in: ['confirmed', 'cancelled']
+        }
+      })
+        .select(
+          'patientName appointmentDate fromTime toTime bookingStatus paymentStatus paidAt cancelledAt cancelledByRole refundStatus refundAmountInRupees createdAt updatedAt'
+        )
+        .sort({ updatedAt: -1, createdAt: -1 })
+        .limit(40)
+        .lean(),
+      DoctorMedia.find({
+        doctorId: req.user?.id,
+        deletedAt: null,
+        moderationStatus: {
+          $in: ['approved', 'rejected']
+        }
+      })
+        .select('mediaType moderationStatus moderationNote reviewedAt createdAt updatedAt')
+        .sort({ reviewedAt: -1, updatedAt: -1, createdAt: -1 })
+        .limit(40)
+        .lean(),
+      DoctorSubscriptionNotification.find({
+        doctorId: req.user?.id
+      })
+        .select('eventType title message createdAt')
+        .sort({ createdAt: -1 })
+        .limit(40)
+        .lean()
+    ]);
 
-    const notifications = appointments
+    const appointmentNotifications = appointments
       .map((appointment) => mapDoctorNotificationFromAppointment(appointment))
+      .filter(Boolean);
+    const mediaNotifications = mediaRecords
+      .map((mediaRecord) => mapDoctorNotificationFromMediaModeration(mediaRecord))
       .filter(Boolean)
       .sort((firstNotification, secondNotification) => {
         return getNotificationSortTimestamp(secondNotification) - getNotificationSortTimestamp(firstNotification);
       });
+    const subscriptionEventNotifications = subscriptionNotifications
+      .map((subscriptionNotification) => {
+        if (!subscriptionNotification) {
+          return null;
+        }
+
+        return {
+          id: String(subscriptionNotification._id || ''),
+          type: String(subscriptionNotification.eventType || '').trim() || 'plan_updated',
+          title: String(subscriptionNotification.title || '').trim() || 'Subscription update',
+          message: String(subscriptionNotification.message || '').trim() || 'Your subscription has changed.',
+          createdAt: subscriptionNotification.createdAt || null
+        };
+      })
+      .filter(Boolean);
+
+    const notifications = [...appointmentNotifications, ...mediaNotifications, ...subscriptionEventNotifications]
+      .sort((firstNotification, secondNotification) => {
+        return getNotificationSortTimestamp(secondNotification) - getNotificationSortTimestamp(firstNotification);
+      })
+      .slice(0, 80);
 
     return res.status(200).json({
       notifications,

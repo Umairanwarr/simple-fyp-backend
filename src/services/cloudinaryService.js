@@ -54,6 +54,13 @@ export const uploadUserAvatarToCloudinary = async (file, role = 'users') => {
   });
 };
 
+export const uploadDoctorMediaToCloudinary = async (file) => {
+  return uploadDocumentToCloudinary(file, {
+    folder: process.env.CLOUDINARY_DOCTOR_MEDIA_FOLDER || 'fyp/doctors/media',
+    fallbackBaseName: 'doctor_media'
+  });
+};
+
 const uploadDocumentToCloudinary = async (file, { folder, fallbackBaseName }) => {
   ensureCloudinaryConfigured();
 
@@ -64,7 +71,8 @@ const uploadDocumentToCloudinary = async (file, { folder, fallbackBaseName }) =>
   return new Promise((resolve, reject) => {
     const originalName = String(file.originalname || '').trim();
     const isPdf = file.mimetype === 'application/pdf' || /\.pdf$/i.test(originalName);
-    const resourceType = isPdf ? 'raw' : 'image';
+    const isVideo = String(file.mimetype || '').toLowerCase().startsWith('video/');
+    const resourceType = isPdf ? 'raw' : isVideo ? 'video' : 'image';
 
     const sanitizedBaseName = originalName
       .replace(/\.[^/.]+$/, '')

@@ -9,6 +9,7 @@ import {
   mapFavoriteDoctorIdStrings,
   mongoose
 } from './shared.js';
+import { DoctorMedia } from '../../../models/DoctorMedia.js';
 
 export const getDoctorProfileForPatient = async (req, res) => {
   try {
@@ -81,6 +82,15 @@ export const getDoctorProfileForPatient = async (req, res) => {
     }
 
     const favoriteDoctorIdSet = new Set(mapFavoriteDoctorIdStrings(patient));
+    const approvedMedia = await DoctorMedia.find({
+      doctorId: doctor._id,
+      deletedAt: null,
+      moderationStatus: 'approved'
+    })
+      .select('mediaType asset createdAt reviewedAt')
+      .sort({ reviewedAt: -1, createdAt: -1 })
+      .limit(24)
+      .lean();
 
     return res.status(200).json({
       doctor: {
@@ -92,6 +102,12 @@ export const getDoctorProfileForPatient = async (req, res) => {
         rating: doctor.averageRating ? doctor.averageRating.toFixed(2) : '0.00',
         reviews: `${doctor.totalReviews || 0} reviews`,
         reviewsList: doctor.reviews || [],
+        gallery: approvedMedia.map((mediaItem) => ({
+          id: String(mediaItem?._id || ''),
+          mediaType: String(mediaItem?.mediaType || '').trim().toLowerCase() === 'video' ? 'video' : 'image',
+          url: String(mediaItem?.asset?.url || '').trim(),
+          uploadedAt: mediaItem?.createdAt || null
+        })),
         image: getDoctorAvatarUrl(doctor) || '/topdoc.svg',
         isFavorite: favoriteDoctorIdSet.has(String(doctor._id))
       },

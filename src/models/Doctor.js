@@ -228,6 +228,44 @@ const doctorSchema = new mongoose.Schema(
         type: Number,
         default: null
       }
+    },
+    currentPlan: {
+      type: String,
+      enum: ['platinum', 'gold', 'diamond'],
+      default: 'platinum'
+    },
+    subscriptionStatus: {
+      type: String,
+      enum: ['active', 'cancelled', 'expired'],
+      default: 'active'
+    },
+    planActivatedAt: {
+      type: Date,
+      default: Date.now
+    },
+    planExpiresAt: {
+      type: Date,
+      default: null
+    },
+    planCancelledAt: {
+      type: Date,
+      default: null
+    },
+    lastPlanPaymentAt: {
+      type: Date,
+      default: null
+    },
+    lastPlanCheckoutSessionId: {
+      type: String,
+      default: ''
+    },
+    lastPlanPaymentIntentId: {
+      type: String,
+      default: ''
+    },
+    stripeCustomerId: {
+      type: String,
+      default: ''
     }
   },
   {

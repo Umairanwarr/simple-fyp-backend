@@ -66,6 +66,23 @@ export const getDoctorMissingProfileFields = (doctorRecord) => {
 };
 
 export const mapDoctorSessionPayload = (doctorRecord) => {
+  const normalizedCurrentPlan = ['platinum', 'gold', 'diamond'].includes(String(doctorRecord?.currentPlan || '').trim().toLowerCase())
+    ? String(doctorRecord.currentPlan).trim().toLowerCase()
+    : 'platinum';
+  const normalizedSubscriptionStatus = ['active', 'cancelled', 'expired'].includes(String(doctorRecord?.subscriptionStatus || '').trim().toLowerCase())
+    ? String(doctorRecord.subscriptionStatus).trim().toLowerCase()
+    : 'active';
+  const parsedPlanExpiryDate = doctorRecord?.planExpiresAt ? new Date(doctorRecord.planExpiresAt) : null;
+  const hasActivePaidPlan = normalizedCurrentPlan !== 'platinum'
+    && normalizedSubscriptionStatus === 'active'
+    && parsedPlanExpiryDate
+    && !Number.isNaN(parsedPlanExpiryDate.getTime())
+    && parsedPlanExpiryDate.getTime() > Date.now();
+  const effectivePlan = hasActivePaidPlan ? normalizedCurrentPlan : 'platinum';
+  const effectiveStatus = effectivePlan === 'platinum'
+    ? (normalizedCurrentPlan === 'platinum' ? 'active' : 'expired')
+    : normalizedSubscriptionStatus;
+
   return {
     id: doctorRecord._id,
     fullName: doctorRecord.fullName,
@@ -79,7 +96,12 @@ export const mapDoctorSessionPayload = (doctorRecord) => {
     role: doctorRecord.role,
     applicationStatus: doctorRecord.applicationStatus,
     profileCtr: Math.max(0, Math.trunc(Number(doctorRecord.profileCtr || 0))),
-    avatarUrl: getDoctorAvatarUrl(doctorRecord)
+    avatarUrl: getDoctorAvatarUrl(doctorRecord),
+    currentPlan: effectivePlan,
+    subscriptionStatus: effectiveStatus,
+    planActivatedAt: doctorRecord?.planActivatedAt || null,
+    planExpiresAt: effectivePlan === 'platinum' ? null : doctorRecord?.planExpiresAt || null,
+    lastPlanPaymentAt: doctorRecord?.lastPlanPaymentAt || null
   };
 };
 
@@ -403,6 +425,33 @@ export const mapDoctorNotificationFromAppointment = (appointmentRecord) => {
   }
 
   return null;
+};
+
+export const mapDoctorNotificationFromMediaModeration = (mediaRecord) => {
+  const moderationStatus = String(mediaRecord?.moderationStatus || '').trim().toLowerCase();
+
+  if (!['approved', 'rejected'].includes(moderationStatus)) {
+    return null;
+  }
+
+  const mediaType = String(mediaRecord?.mediaType || '').trim().toLowerCase() === 'video'
+    ? 'video'
+    : 'image';
+  const mediaLabel = mediaType === 'video' ? 'video' : 'image';
+  const moderationNote = String(mediaRecord?.moderationNote || '').trim();
+  const createdAt = mediaRecord?.reviewedAt || mediaRecord?.updatedAt || mediaRecord?.createdAt;
+  const isApproved = moderationStatus === 'approved';
+
+  return {
+    id: `${String(mediaRecord?._id || '')}:media-${moderationStatus}`,
+    mediaId: String(mediaRecord?._id || ''),
+    type: isApproved ? 'media_approved' : 'media_rejected',
+    title: isApproved ? 'Media Approved' : 'Media Rejected',
+    message: isApproved
+      ? `Your ${mediaLabel} was approved and is now visible on your public profile.`
+      : `Your ${mediaLabel} was rejected by admin.${moderationNote ? ` Reason: ${moderationNote}` : ''}`,
+    createdAt: createdAt ? new Date(createdAt).toISOString() : null
+  };
 };
 
 export const mapDoctorScheduleRecord = (appointmentRecord) => {

@@ -3,13 +3,18 @@ import { Appointment } from '../../models/Appointment.js';
 import { BugReport } from '../../models/BugReport.js';
 import { Clinic } from '../../models/Clinic.js';
 import { Doctor } from '../../models/Doctor.js';
+import { DoctorMedia } from '../../models/DoctorMedia.js';
+import { DoctorSubscriptionPayment } from '../../models/DoctorSubscriptionPayment.js';
 import { MedicalStore } from '../../models/MedicalStore.js';
 import { Patient } from '../../models/Patient.js';
+import { SubscriptionPricing } from '../../models/SubscriptionPricing.js';
 import { sendClinicApplicationStatusEmail } from '../../services/mailService.js';
 import { sendDoctorApplicationStatusEmail } from '../../services/mailService.js';
 import { sendMedicalStoreApplicationStatusEmail } from '../../services/mailService.js';
 import { generateAuthToken } from '../../utils/token.js';
 import mongoose from 'mongoose';
+
+const DOCTOR_SUBSCRIPTION_PRICING_KEY = 'doctor-dashboard-subscriptions';
 
 const escapeRegex = (value) => {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -96,6 +101,25 @@ const mapAdminBugReportNotification = (bugReportRecord) => {
   };
 };
 
+const mapAdminDoctorMediaUploadNotification = (mediaRecord) => {
+  const doctorName = String(mediaRecord?.doctorName || '').trim() || 'Doctor';
+  const mediaType = String(mediaRecord?.mediaType || '').trim().toLowerCase() === 'video'
+    ? 'video'
+    : 'image';
+  const mediaFileName = String(mediaRecord?.asset?.originalName || '').trim() || `${mediaType}-file`;
+
+  return {
+    id: `media-${String(mediaRecord?._id || '')}`,
+    mediaId: String(mediaRecord?._id || ''),
+    type: 'doctor_media_uploaded',
+    title: 'New Doctor Media Upload',
+    message: `${doctorName} uploaded a ${mediaType} (${mediaFileName}) for moderation.`,
+    doctorName,
+    mediaType,
+    createdAt: mediaRecord?.createdAt || null
+  };
+};
+
 const getDoctorRatingSummaryFromReviews = (reviews = []) => {
   const safeReviews = Array.isArray(reviews) ? reviews : [];
   const totalReviews = safeReviews.length;
@@ -115,6 +139,69 @@ const getDoctorRatingSummaryFromReviews = (reviews = []) => {
     totalReviews,
     averageRating: Number((totalRating / totalReviews).toFixed(2))
   };
+};
+
+const getDefaultDoctorSubscriptionPricing = () => {
+  return {
+    platinumPriceInRupees: 0,
+    goldPriceInRupees: 999,
+    diamondPriceInRupees: 2999
+  };
+};
+
+const normalizePriceInRupees = (value, fallbackValue) => {
+  const normalizedFallback = Number.isFinite(Number(fallbackValue))
+    ? Number(fallbackValue)
+    : 0;
+
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return Math.max(0, Math.trunc(normalizedFallback));
+  }
+
+  return Math.max(0, Math.trunc(numericValue));
+};
+
+const mapDoctorSubscriptionPricing = (pricingRecord) => {
+  const fallbackPricing = getDefaultDoctorSubscriptionPricing();
+
+  return {
+    platinumPriceInRupees: normalizePriceInRupees(
+      pricingRecord?.platinumPriceInRupees ?? pricingRecord?.platinumPriceInUsd,
+      fallbackPricing.platinumPriceInRupees
+    ),
+    goldPriceInRupees: normalizePriceInRupees(
+      pricingRecord?.goldPriceInRupees ?? pricingRecord?.goldPriceInUsd,
+      fallbackPricing.goldPriceInRupees
+    ),
+    diamondPriceInRupees: normalizePriceInRupees(
+      pricingRecord?.diamondPriceInRupees ?? pricingRecord?.diamondPriceInUsd,
+      fallbackPricing.diamondPriceInRupees
+    ),
+    updatedAt: pricingRecord?.updatedAt || null
+  };
+};
+
+const getOrCreateDoctorSubscriptionPricing = async () => {
+  const fallbackPricing = getDefaultDoctorSubscriptionPricing();
+
+  return SubscriptionPricing.findOneAndUpdate(
+    {
+      key: DOCTOR_SUBSCRIPTION_PRICING_KEY
+    },
+    {
+      $setOnInsert: {
+        key: DOCTOR_SUBSCRIPTION_PRICING_KEY,
+        ...fallbackPricing
+      }
+    },
+    {
+      new: true,
+      upsert: true,
+      setDefaultsOnInsert: true
+    }
+  ).lean();
 };
 
 export const loginAdmin = async (req, res) => {
@@ -156,6 +243,97 @@ export const loginAdmin = async (req, res) => {
   }
 };
 
+export const getDoctorSubscriptionPricingForAdmin = async (req, res) => {
+  try {
+    const pricingRecord = await getOrCreateDoctorSubscriptionPricing();
+
+    return res.status(200).json({
+      pricing: mapDoctorSubscriptionPricing(pricingRecord)
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: 'Could not fetch subscription pricing',
+      error: error.message
+    });
+  }
+};
+
+export const updateDoctorSubscriptionPricingForAdmin = async (req, res) => {
+  try {
+    const {
+      platinumPriceInRupees,
+      goldPriceInRupees,
+      diamondPriceInRupees,
+      platinumPriceInUsd,
+      goldPriceInUsd,
+      diamondPriceInUsd
+    } = req.body || {};
+
+    const resolvedPlatinumPrice = platinumPriceInRupees ?? platinumPriceInUsd;
+    const resolvedGoldPrice = goldPriceInRupees ?? goldPriceInUsd;
+    const resolvedDiamondPrice = diamondPriceInRupees ?? diamondPriceInUsd;
+
+    const inputValues = [
+      resolvedPlatinumPrice,
+      resolvedGoldPrice,
+      resolvedDiamondPrice
+    ];
+
+    const hasInvalidValue = inputValues.some((priceValue) => {
+      if (priceValue === null || priceValue === undefined || priceValue === '') {
+        return true;
+      }
+
+      const numericValue = Number(priceValue);
+
+      return !Number.isFinite(numericValue) || numericValue < 0;
+    });
+
+    if (hasInvalidValue) {
+      return res.status(400).json({
+        message: 'All price fields are required and must be non-negative numbers'
+      });
+    }
+
+    const updatedRecord = await SubscriptionPricing.findOneAndUpdate(
+      {
+        key: DOCTOR_SUBSCRIPTION_PRICING_KEY
+      },
+      {
+        $set: {
+          platinumPriceInRupees: normalizePriceInRupees(resolvedPlatinumPrice, 0),
+          goldPriceInRupees: normalizePriceInRupees(resolvedGoldPrice, 999),
+          diamondPriceInRupees: normalizePriceInRupees(resolvedDiamondPrice, 2999),
+          updatedByAdminId: req.user?.id || null
+        },
+        $unset: {
+          platinumPriceInUsd: '',
+          goldPriceInUsd: '',
+          diamondPriceInUsd: ''
+        },
+        $setOnInsert: {
+          key: DOCTOR_SUBSCRIPTION_PRICING_KEY
+        }
+      },
+      {
+        new: true,
+        upsert: true,
+        setDefaultsOnInsert: true
+      }
+    ).lean();
+
+    return res.status(200).json({
+      message: 'Doctor subscription pricing updated successfully',
+      pricing: mapDoctorSubscriptionPricing(updatedRecord)
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: 'Could not update subscription pricing',
+      error: error.message
+    });
+  }
+};
+
 export const getPatientsForAdmin = async (req, res) => {
   try {
     const patients = await Patient.find()
@@ -178,6 +356,17 @@ export const getPatientsForAdmin = async (req, res) => {
 
 export const getAdminStats = async (req, res) => {
   try {
+    const now = new Date();
+    const activePaidPlanFilters = {
+      currentPlan: {
+        $in: ['gold', 'diamond']
+      },
+      subscriptionStatus: 'active',
+      planExpiresAt: {
+        $gt: now
+      }
+    };
+
     const [
       totalPatients,
       verifiedPatients,
@@ -187,8 +376,12 @@ export const getAdminStats = async (req, res) => {
       approvedClinics,
       totalMedicalStores,
       approvedMedicalStores,
+      totalGoldDoctors,
+      totalDiamondDoctors,
       appointmentMetrics,
-      recentCommissions
+      subscriptionMetrics,
+      recentCommissions,
+      premiumUsers
     ] = await Promise.all([
       Patient.countDocuments(),
       Patient.countDocuments({ isVerified: true }),
@@ -198,6 +391,14 @@ export const getAdminStats = async (req, res) => {
       Clinic.countDocuments({ applicationStatus: 'approved' }),
       MedicalStore.countDocuments(),
       MedicalStore.countDocuments({ applicationStatus: 'approved' }),
+      Doctor.countDocuments({
+        ...activePaidPlanFilters,
+        currentPlan: 'gold'
+      }),
+      Doctor.countDocuments({
+        ...activePaidPlanFilters,
+        currentPlan: 'diamond'
+      }),
       Appointment.aggregate([
         {
           $match: {
@@ -219,18 +420,50 @@ export const getAdminStats = async (req, res) => {
           }
         }
       ]),
+      DoctorSubscriptionPayment.aggregate([
+        {
+          $match: {
+            status: 'succeeded'
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            totalSubscriptionRevenueInRupees: {
+              $sum: '$amountInRupees'
+            }
+          }
+        }
+      ]),
       Appointment.find({
         paymentStatus: 'succeeded'
       })
         .select('doctorName patientName amountInRupees adminCommissionInRupees paidAt createdAt')
         .sort({ paidAt: -1, createdAt: -1 })
         .limit(8)
+        .lean(),
+      Doctor.find(activePaidPlanFilters)
+        .select('fullName email phone specialization currentPlan planActivatedAt planExpiresAt lastPlanPaymentAt')
+        .sort({ lastPlanPaymentAt: -1, planActivatedAt: -1 })
+        .limit(120)
         .lean()
     ]);
 
     const normalizedAppointmentMetrics = Array.isArray(appointmentMetrics)
       ? appointmentMetrics[0] || {}
       : {};
+    const normalizedSubscriptionMetrics = Array.isArray(subscriptionMetrics)
+      ? subscriptionMetrics[0] || {}
+      : {};
+    const appointmentBookingRevenueInRupees = Math.max(
+      0,
+      Math.trunc(Number(normalizedAppointmentMetrics?.totalBookingRevenueInRupees || 0))
+    );
+    const totalSubscriptionRevenueInRupees = Math.max(
+      0,
+      Math.trunc(Number(normalizedSubscriptionMetrics?.totalSubscriptionRevenueInRupees || 0))
+    );
+    const totalPlatformRevenueInRupees = appointmentBookingRevenueInRupees + totalSubscriptionRevenueInRupees;
 
     return res.status(200).json({
       totalPatients,
@@ -241,18 +474,32 @@ export const getAdminStats = async (req, res) => {
       approvedClinics,
       totalMedicalStores,
       approvedMedicalStores,
+      totalGoldDoctors,
+      totalDiamondDoctors,
       totalConfirmedAppointments: Math.max(
         0,
         Math.trunc(Number(normalizedAppointmentMetrics?.totalConfirmedAppointments || 0))
       ),
-      totalBookingRevenueInRupees: Math.max(
-        0,
-        Math.trunc(Number(normalizedAppointmentMetrics?.totalBookingRevenueInRupees || 0))
-      ),
+      totalBookingRevenueInRupees: totalPlatformRevenueInRupees,
+      appointmentBookingRevenueInRupees,
+      totalSubscriptionRevenueInRupees,
       totalAdminCommissionInRupees: Math.max(
         0,
         Math.trunc(Number(normalizedAppointmentMetrics?.totalAdminCommissionInRupees || 0))
       ),
+      premiumUsers: Array.isArray(premiumUsers)
+        ? premiumUsers.map((premiumDoctor) => ({
+            id: String(premiumDoctor?._id || ''),
+            fullName: String(premiumDoctor?.fullName || '').trim() || 'Doctor',
+            email: String(premiumDoctor?.email || '').trim() || 'N/A',
+            phone: String(premiumDoctor?.phone || '').trim() || 'N/A',
+            specialization: String(premiumDoctor?.specialization || '').trim() || 'General',
+            currentPlan: String(premiumDoctor?.currentPlan || '').trim().toLowerCase() || 'platinum',
+            planActivatedAt: premiumDoctor?.planActivatedAt || null,
+            planExpiresAt: premiumDoctor?.planExpiresAt || null,
+            purchasedAt: premiumDoctor?.lastPlanPaymentAt || premiumDoctor?.planActivatedAt || null
+          }))
+        : [],
       recentCommissions: Array.isArray(recentCommissions)
         ? recentCommissions.map((commissionRecord) => ({
             id: String(commissionRecord?._id || ''),
@@ -282,7 +529,7 @@ export const getAdminNotifications = async (req, res) => {
       return res.status(404).json({ message: 'Admin not found' });
     }
 
-    const [doctors, bugReports] = await Promise.all([
+    const [doctors, bugReports, pendingDoctorMedia] = await Promise.all([
       Doctor.find({
         'reviews.0': {
           $exists: true
@@ -292,6 +539,14 @@ export const getAdminNotifications = async (req, res) => {
         .lean(),
       BugReport.find({})
         .select('reporterName reporterRole subject createdAt')
+        .sort({ createdAt: -1 })
+        .limit(80)
+        .lean(),
+      DoctorMedia.find({
+        deletedAt: null,
+        moderationStatus: 'pending'
+      })
+        .select('doctorName mediaType asset.originalName createdAt')
         .sort({ createdAt: -1 })
         .limit(80)
         .lean()
@@ -308,8 +563,11 @@ export const getAdminNotifications = async (req, res) => {
       });
 
     const bugReportNotifications = bugReports.map((bugReport) => mapAdminBugReportNotification(bugReport));
+    const mediaNotifications = pendingDoctorMedia.map((mediaRecord) => {
+      return mapAdminDoctorMediaUploadNotification(mediaRecord);
+    });
 
-    const notifications = [...bugReportNotifications, ...reviewNotifications]
+    const notifications = [...bugReportNotifications, ...reviewNotifications, ...mediaNotifications]
       .sort((firstNotification, secondNotification) => {
         return toDateTimestamp(secondNotification?.createdAt) - toDateTimestamp(firstNotification?.createdAt);
       })
