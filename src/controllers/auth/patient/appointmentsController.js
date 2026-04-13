@@ -21,6 +21,28 @@ import {
   sendPatientAppointmentConfirmationEmail
 } from './shared.js';
 
+const REFUND_WINDOW_MINUTES = 15;
+const REFUND_WINDOW_IN_MS = REFUND_WINDOW_MINUTES * 60 * 1000;
+
+const normalizeRefundStatus = (refundStatus) => {
+  const normalizedStatus = String(refundStatus || '').trim().toLowerCase();
+
+  if (normalizedStatus === 'succeeded' || normalizedStatus === 'pending' || normalizedStatus === 'failed') {
+    return normalizedStatus;
+  }
+
+  if (normalizedStatus === 'canceled') {
+    return 'failed';
+  }
+
+  return 'pending';
+};
+
+const formatCurrencyInRupees = (amountInRupees) => {
+  const safeAmount = Math.max(0, Math.trunc(Number(amountInRupees || 0)));
+  return `Rs ${safeAmount.toLocaleString('en-PK')}`;
+};
+
 export const createPatientAppointmentPaymentIntent = async (req, res) => {
   try {
     const {
@@ -387,10 +409,6 @@ export const cancelPatientAppointment = async (req, res) => {
       return res.status(400).json({ message: 'Invalid appointment id' });
     }
 
-    if (!confirmNoRefund) {
-      return res.status(400).json({ message: 'Please confirm no-refund acknowledgement before cancellation' });
-    }
-
     const appointment = await Appointment.findOne({
       _id: appointmentId,
       patientId: req.user?.id
@@ -419,15 +437,90 @@ export const cancelPatientAppointment = async (req, res) => {
       return res.status(400).json({ message: 'Completed appointments cannot be cancelled' });
     }
 
+    const cancellationTimestamp = new Date();
+    const paidAtTimestamp = appointment?.paidAt ? new Date(appointment.paidAt).getTime() : 0;
+    const refundWindowDeadlineTimestamp = paidAtTimestamp > 0
+      ? paidAtTimestamp + REFUND_WINDOW_IN_MS
+      : 0;
+    const isEligibleForRefundWindow = refundWindowDeadlineTimestamp > 0
+      && cancellationTimestamp.getTime() <= refundWindowDeadlineTimestamp;
+
+    if (!isEligibleForRefundWindow && !confirmNoRefund) {
+      return res.status(400).json({
+        message: `Please confirm no-refund acknowledgement. Full refund is only available within ${REFUND_WINDOW_MINUTES} minutes of booking.`
+      });
+    }
+
+    let refundStatus = 'not_applicable';
+    let refundAmountInRupees = 0;
+    let refundId = '';
+    let refundFailureReason = '';
+    let refundedAt = null;
+
+    if (isEligibleForRefundWindow) {
+      refundAmountInRupees = Math.max(0, Math.trunc(Number(appointment.amountInRupees || 0)));
+
+      if (refundAmountInRupees > 0) {
+        let refundResult;
+
+        try {
+          const stripeClient = getStripeClient();
+
+          refundResult = await stripeClient.refunds.create({
+            payment_intent: String(appointment.paymentIntentId || '').trim(),
+            amount: refundAmountInRupees * 100,
+            reason: 'requested_by_customer',
+            metadata: {
+              appointmentId: String(appointment._id || ''),
+              doctorId: String(appointment.doctorId || ''),
+              patientId: String(appointment.patientId || ''),
+              cancelledByRole: 'patient',
+              refundWindowMinutes: String(REFUND_WINDOW_MINUTES)
+            }
+          });
+        } catch (error) {
+          if (/stripe secret key is not configured/i.test(String(error?.message || ''))) {
+            return res.status(500).json({ message: 'Stripe payment is not configured on server' });
+          }
+
+          return res.status(502).json({
+            message: 'Refund could not be processed. Appointment was not cancelled.',
+            error: error.message
+          });
+        }
+
+        refundStatus = normalizeRefundStatus(refundResult?.status);
+        refundId = String(refundResult?.id || '').trim();
+
+        if (refundStatus === 'failed') {
+          refundFailureReason = 'Stripe refund request failed';
+
+          return res.status(502).json({
+            message: 'Refund could not be processed. Appointment was not cancelled. Please try again later.'
+          });
+        }
+
+        if (refundStatus === 'succeeded') {
+          refundedAt = cancellationTimestamp;
+        }
+      }
+    }
+
     appointment.bookingStatus = 'cancelled';
-    appointment.cancelledAt = new Date();
+    appointment.cancelledAt = cancellationTimestamp;
     appointment.cancelledByRole = 'patient';
-    appointment.refundStatus = 'not_applicable';
-    appointment.refundAmountInRupees = 0;
-    appointment.refundId = '';
-    appointment.refundFailureReason = '';
-    appointment.refundedAt = null;
-    appointment.cancellationAcknowledgedNoRefund = true;
+    appointment.refundStatus = refundStatus;
+    appointment.refundAmountInRupees = refundAmountInRupees;
+    appointment.refundId = refundId;
+    appointment.refundFailureReason = refundFailureReason;
+    appointment.refundedAt = refundedAt;
+    appointment.cancellationAcknowledgedNoRefund = !isEligibleForRefundWindow;
+
+    if (isEligibleForRefundWindow) {
+      appointment.doctorPayoutInRupees = 0;
+      appointment.adminCommissionInRupees = 0;
+    }
+
     await appointment.save();
 
     const doctorForEmail = await Doctor.findById(appointment.doctorId)
@@ -448,8 +541,8 @@ export const cancelPatientAppointment = async (req, res) => {
         patientName: appointment.patientName,
         doctorName: appointment.doctorName,
         cancelledByRole: 'patient',
-        refundStatus: 'not_applicable',
-        refundAmountInRupees: 0,
+        refundStatus,
+        refundAmountInRupees,
         ...cancellationEmailPayload
       })
     ];
@@ -464,8 +557,8 @@ export const cancelPatientAppointment = async (req, res) => {
           patientName: appointment.patientName,
           patientEmail: appointment.patientEmail,
           cancelledByRole: 'patient',
-          refundStatus: 'not_applicable',
-          refundAmountInRupees: 0,
+          refundStatus,
+          refundAmountInRupees,
           ...cancellationEmailPayload
         })
       );
@@ -481,10 +574,26 @@ export const cancelPatientAppointment = async (req, res) => {
       });
     }
 
+    if (isEligibleForRefundWindow && refundStatus === 'succeeded' && refundAmountInRupees > 0) {
+      return res.status(200).json({
+        message: `Appointment cancelled. Full refund of ${formatCurrencyInRupees(refundAmountInRupees)} has been processed.`
+      });
+    }
+
+    if (isEligibleForRefundWindow && refundStatus === 'pending' && refundAmountInRupees > 0) {
+      return res.status(200).json({
+        message: `Appointment cancelled. Full refund of ${formatCurrencyInRupees(refundAmountInRupees)} is being processed.`
+      });
+    }
+
     return res.status(200).json({
-      message: 'Appointment cancelled. No refund will be processed.'
+      message: `Appointment cancelled. Refund is only available within ${REFUND_WINDOW_MINUTES} minutes of booking.`
     });
   } catch (error) {
+    if (/stripe secret key is not configured/i.test(String(error?.message || ''))) {
+      return res.status(500).json({ message: 'Stripe payment is not configured on server' });
+    }
+
     return res.status(500).json({ message: 'Could not cancel appointment', error: error.message });
   }
 };

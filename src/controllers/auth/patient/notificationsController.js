@@ -24,7 +24,7 @@ export const getPatientNotifications = async (req, res) => {
       }
     })
       .select(
-        'doctorName appointmentDate fromTime toTime bookingStatus paymentStatus paidAt cancelledAt cancelledByRole refundStatus refundAmountInRupees createdAt updatedAt'
+        'doctorName appointmentDate fromTime toTime bookingStatus paymentStatus paidAt cancelledAt cancelledByRole refundStatus refundAmountInRupees rescheduledAt rescheduledByRole rescheduleReason previousAppointmentDate previousFromTime previousToTime createdAt updatedAt'
       )
       .sort({ updatedAt: -1, createdAt: -1 })
       .limit(40)

@@ -218,6 +218,7 @@ export const sendPatientAppointmentConfirmationEmail = async ({
       `Mode: ${modeLabel}`,
       `Amount Paid: ${amountText}`,
       `Payment Method: ${paymentMethodLabel}`,
+      'Refund Policy: Cancel within 15 minutes of booking to receive a full refund.',
       `Contact Phone: ${contactPhoneNumber}`,
       `Contact Address: ${addressText}`
     ].join('\n'),
@@ -236,6 +237,7 @@ export const sendPatientAppointmentConfirmationEmail = async ({
         </div>
 
         <div style="background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 10px; padding: 14px 16px;">
+          <p style="margin: 0 0 8px;"><strong>Refund Policy:</strong> Cancel within 15 minutes of booking to receive a full refund.</p>
           <p style="margin: 0 0 8px;"><strong>Contact Phone:</strong> ${contactPhoneNumber}</p>
           <p style="margin: 0;"><strong>Contact Address:</strong> ${addressText}</p>
         </div>
@@ -353,6 +355,19 @@ export const sendPatientAppointmentCancelledEmail = async ({
       refundPolicyText = 'Please contact support for the latest refund status.';
       refundPolicyHtml = '<strong style="color: #b45309;">Please contact support for the latest refund status.</strong>';
     }
+  } else if (safeCancelledByRole === 'patient') {
+    if (safeRefundStatus === 'succeeded' && safeRefundAmountInRupees > 0) {
+      const refundAmountText = formatCurrencyInRupees(safeRefundAmountInRupees);
+      refundPolicyText = `You cancelled within 15 minutes. Full refund of ${refundAmountText} has been processed.`;
+      refundPolicyHtml = `<strong style="color: #047857;">You cancelled within 15 minutes. Full refund of ${refundAmountText} has been processed.</strong>`;
+    } else if (safeRefundStatus === 'pending' && safeRefundAmountInRupees > 0) {
+      const refundAmountText = formatCurrencyInRupees(safeRefundAmountInRupees);
+      refundPolicyText = `You cancelled within 15 minutes. Full refund of ${refundAmountText} is being processed.`;
+      refundPolicyHtml = `<strong style="color: #0369a1;">You cancelled within 15 minutes. Full refund of ${refundAmountText} is being processed.</strong>`;
+    } else {
+      refundPolicyText = 'No refund was processed. Refund is only available within 15 minutes of booking.';
+      refundPolicyHtml = '<strong>No refund was processed. Refund is only available within 15 minutes of booking.</strong>';
+    }
   }
 
   const mailOptions = {
@@ -436,6 +451,19 @@ export const sendDoctorAppointmentCancelledEmail = async ({
     }
   } else if (safeCancelledByRole === 'patient') {
     cancellationSummaryText = `An appointment with ${safePatientName} has been cancelled by the patient.`;
+
+    if (safeRefundStatus === 'succeeded' && safeRefundAmountInRupees > 0) {
+      const refundAmountText = formatCurrencyInRupees(safeRefundAmountInRupees);
+      refundPolicyText = `Patient cancelled within 15 minutes. Full refund of ${refundAmountText} was processed and payout is set to Rs 0.`;
+      refundPolicyHtml = `<strong style="color: #047857;">Patient cancelled within 15 minutes. Full refund of ${refundAmountText} was processed and payout is set to Rs 0.</strong>`;
+    } else if (safeRefundStatus === 'pending' && safeRefundAmountInRupees > 0) {
+      const refundAmountText = formatCurrencyInRupees(safeRefundAmountInRupees);
+      refundPolicyText = `Patient cancelled within 15 minutes. Full refund of ${refundAmountText} is being processed and payout is set to Rs 0.`;
+      refundPolicyHtml = `<strong style="color: #0369a1;">Patient cancelled within 15 minutes. Full refund of ${refundAmountText} is being processed and payout is set to Rs 0.</strong>`;
+    } else {
+      refundPolicyText = 'No refund was processed. Refund is only available within 15 minutes of booking.';
+      refundPolicyHtml = '<strong>No refund was processed. Refund is only available within 15 minutes of booking.</strong>';
+    }
   }
 
   const mailOptions = {
@@ -473,6 +501,70 @@ export const sendDoctorAppointmentCancelledEmail = async ({
         </div>
 
         <p style="margin: 14px 0 0; color: #b91c1c;">${refundPolicyHtml}</p>
+      </div>
+    `
+  };
+
+  await getTransporter().sendMail(mailOptions);
+};
+
+export const sendPatientAppointmentRescheduledEmail = async ({
+  to,
+  patientName,
+  doctorName,
+  previousAppointmentDate,
+  previousFromTime,
+  previousToTime,
+  appointmentDate,
+  fromTime,
+  toTime,
+  consultationMode,
+  amountInRupees,
+  reason
+}) => {
+  ensureSmtpCredentials();
+
+  const safePatientName = String(patientName || '').trim() || 'Patient';
+  const safeDoctorName = String(doctorName || '').trim() || 'Doctor';
+  const safeReason = String(reason || '').trim() || 'Schedule adjusted by your doctor.';
+  const modeLabel = consultationMode === 'offline' ? 'Offline (Clinic Visit)' : 'Online Consultation';
+  const amountText = formatCurrencyInRupees(amountInRupees);
+
+  const previousSlotText = `${previousAppointmentDate} (${previousFromTime} - ${previousToTime})`;
+  const newSlotText = `${appointmentDate} (${fromTime} - ${toTime})`;
+
+  const mailOptions = {
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject: 'Appointment Rescheduled',
+    text: [
+      `Hi ${safePatientName},`,
+      '',
+      `Your doctor (${safeDoctorName}) has rescheduled your appointment.`,
+      `Previous Slot: ${previousSlotText}`,
+      `New Slot: ${newSlotText}`,
+      `Mode: ${modeLabel}`,
+      `Paid Amount (Unchanged): ${amountText}`,
+      'No additional payment is required for this reschedule.',
+      `Reason: ${safeReason}`
+    ].join('\n'),
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; color: #1f2937;">
+        <h2 style="margin-bottom: 8px;">Appointment Rescheduled</h2>
+        <p style="margin: 0 0 16px;">Hi ${safePatientName},</p>
+        <p style="margin: 0 0 16px;">Your doctor (<strong>${safeDoctorName}</strong>) has rescheduled your appointment.</p>
+
+        <div style="background: #fff7ed; border: 1px solid #fed7aa; border-radius: 10px; padding: 14px 16px; margin-bottom: 14px;">
+          <p style="margin: 0 0 8px;"><strong>Previous Slot:</strong> ${previousSlotText}</p>
+          <p style="margin: 0;"><strong>New Slot:</strong> ${newSlotText}</p>
+        </div>
+
+        <div style="background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 10px; padding: 14px 16px;">
+          <p style="margin: 0 0 8px;"><strong>Mode:</strong> ${modeLabel}</p>
+          <p style="margin: 0 0 8px;"><strong>Paid Amount (Unchanged):</strong> ${amountText}</p>
+          <p style="margin: 0 0 8px;"><strong>Payment:</strong> No additional payment is required for this reschedule.</p>
+          <p style="margin: 0;"><strong>Reason:</strong> ${safeReason}</p>
+        </div>
       </div>
     `
   };

@@ -13,6 +13,7 @@ import {
   loginDoctor,
   markDoctorNotificationsAsRead,
   registerDoctor,
+  rescheduleDoctorUpcomingAppointment,
   sendDoctorLoginOtp,
   sendDoctorVerificationOtp,
   updateDoctorProfile,
@@ -38,6 +39,7 @@ router.get('/reviews', requireRoleAuth(['doctor']), getDoctorReviews);
 router.get('/schedule', requireRoleAuth(['doctor']), getDoctorSchedule);
 router.get('/appointments', requireRoleAuth(['doctor']), getDoctorAppointments);
 router.patch('/appointments/:appointmentId/cancel', requireRoleAuth(['doctor']), cancelDoctorUpcomingAppointment);
+router.patch('/appointments/:appointmentId/reschedule', requireRoleAuth(['doctor']), rescheduleDoctorUpcomingAppointment);
 router.get('/profile', requireRoleAuth(['doctor']), getDoctorProfile);
 router.patch('/profile', requireRoleAuth(['doctor']), updateDoctorProfile);
 router.get('/availability', requireRoleAuth(['doctor']), getDoctorAvailability);

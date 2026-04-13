@@ -1,4 +1,5 @@
 import {
+  Appointment,
   Doctor,
   getDoctorMissingProfileFields,
   hasOverlappingAvailabilitySlot,
@@ -17,8 +18,25 @@ export const getDoctorAvailability = async (req, res) => {
       return res.status(404).json({ message: 'Doctor not found' });
     }
 
+    const confirmedAppointments = await Appointment.find({
+      doctorId: req.user?.id,
+      bookingStatus: 'confirmed',
+      paymentStatus: 'succeeded'
+    })
+      .select('slotId')
+      .lean();
+
+    const bookedSlotIds = new Set(
+      confirmedAppointments
+        .map((appointment) => String(appointment?.slotId || '').trim())
+        .filter(Boolean)
+    );
+
+    const openAvailabilitySlots = mapDoctorAvailabilitySlots(doctor)
+      .filter((slot) => !bookedSlotIds.has(String(slot?.id || '').trim()));
+
     return res.status(200).json({
-      slots: mapDoctorAvailabilitySlots(doctor)
+      slots: openAvailabilitySlots
     });
   } catch (error) {
     return res.status(500).json({ message: 'Could not fetch availability slots', error: error.message });

@@ -7,6 +7,7 @@ import {
 } from '../../../services/cloudinaryService.js';
 import {
   sendDoctorAppointmentCancelledEmail,
+  sendPatientAppointmentRescheduledEmail,
   sendPatientAppointmentCancelledEmail,
   sendVerificationOtpEmail
 } from '../../../services/mailService.js';
@@ -25,6 +26,7 @@ export {
   getStripeClient,
   hashOtp,
   sendDoctorAppointmentCancelledEmail,
+  sendPatientAppointmentRescheduledEmail,
   sendPatientAppointmentCancelledEmail,
   sendVerificationOtpEmail,
   uploadDoctorLicenseToCloudinary,
@@ -368,7 +370,13 @@ export const mapDoctorNotificationFromAppointment = (appointmentRecord) => {
         message = `You cancelled the appointment with ${patientName} on ${appointmentDate} (${fromTime} - ${toTime}). Admin commission is retained and your payout is set to Rs 0.`;
       }
     } else if (cancelledByRole === 'patient') {
-      message = `${patientName} cancelled the appointment on ${appointmentDate} (${fromTime} - ${toTime}). No refund was processed.`;
+      if (refundStatus === 'succeeded' && refundAmountInRupees > 0) {
+        message = `${patientName} cancelled the appointment on ${appointmentDate} (${fromTime} - ${toTime}) within 15 minutes. Full refund of ${formatCurrencyInRupees(refundAmountInRupees)} was processed and your payout is set to Rs 0.`;
+      } else if (refundStatus === 'pending' && refundAmountInRupees > 0) {
+        message = `${patientName} cancelled the appointment on ${appointmentDate} (${fromTime} - ${toTime}) within 15 minutes. Full refund of ${formatCurrencyInRupees(refundAmountInRupees)} is being processed and your payout is set to Rs 0.`;
+      } else {
+        message = `${patientName} cancelled the appointment on ${appointmentDate} (${fromTime} - ${toTime}). No refund was processed (outside 15-minute window).`;
+      }
     }
 
     return {
