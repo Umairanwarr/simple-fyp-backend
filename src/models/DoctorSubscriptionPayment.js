@@ -55,8 +55,7 @@ const doctorSubscriptionPaymentSchema = new mongoose.Schema(
     },
     stripeCheckoutSessionId: {
       type: String,
-      default: '',
-      index: true
+      default: ''
     },
     stripePaymentIntentId: {
       type: String,

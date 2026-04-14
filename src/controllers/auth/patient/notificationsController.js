@@ -5,6 +5,7 @@ import {
   getUnreadNotificationsCount,
   mapPatientNotificationFromAppointment
 } from './shared.js';
+import ChatMessage from '../../../models/ChatMessage.js';
 
 export const getPatientNotifications = async (req, res) => {
   try {
@@ -30,8 +31,28 @@ export const getPatientNotifications = async (req, res) => {
       .limit(40)
       .lean();
 
-    const notifications = appointments
-      .map((appointment) => mapPatientNotificationFromAppointment(appointment))
+    const unreadChats = await ChatMessage.find({
+      to: req.user?.id,
+      readAt: null
+    })
+      .populate('from', 'firstName lastName fullName')
+      .sort({ createdAt: -1 })
+      .limit(20)
+      .lean();
+
+    const chatNotifications = unreadChats.map(chat => {
+      const fromDoc = chat.from || {};
+      const senderName = chat.fromModel === 'Doctor' ? fromDoc.fullName : `${fromDoc.firstName || ''} ${fromDoc.lastName || ''}`.trim();
+      return {
+        id: String(chat._id),
+        type: 'chat_message',
+        title: `New message from ${senderName || 'Someone'}`,
+        message: chat.content,
+        createdAt: chat.createdAt
+      };
+    });
+
+    const notifications = [...appointments.map((appointment) => mapPatientNotificationFromAppointment(appointment)).filter(Boolean), ...chatNotifications]
       .filter(Boolean)
       .sort((firstNotification, secondNotification) => {
         return getNotificationSortTimestamp(secondNotification) - getNotificationSortTimestamp(firstNotification);

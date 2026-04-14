@@ -34,6 +34,4 @@ const subscriptionPricingSchema = new mongoose.Schema(
   }
 );
 
-subscriptionPricingSchema.index({ key: 1 }, { unique: true });
-
 export const SubscriptionPricing = mongoose.model('SubscriptionPricing', subscriptionPricingSchema);

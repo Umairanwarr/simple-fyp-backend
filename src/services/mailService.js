@@ -655,3 +655,44 @@ export const sendPatientAppointmentRescheduledEmail = async ({
 
   await getTransporter().sendMail(mailOptions);
 };
+
+export const sendNewChatMessageEmail = async ({
+  to,
+  recipientName,
+  senderName,
+  senderRole,
+  messagePreview
+}) => {
+  ensureSmtpCredentials();
+
+  const safeRecipientName = String(recipientName || '').trim() || 'User';
+  const safeSenderName = String(senderName || '').trim() || 'Someone';
+  const senderType = String(senderRole || '').toLowerCase() === 'doctor' ? 'doctor' : 'patient';
+  
+  const mailOptions = {
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject: `New message from ${senderType} ${safeSenderName}`,
+    text: [
+      `Hi ${safeRecipientName},`,
+      '',
+      `You have received a new message from ${senderType} ${safeSenderName}:`,
+      `"${messagePreview}"`,
+      '',
+      `Log in to your account to reply.`
+    ].join('\n'),
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; color: #1f2937;">
+        <h2 style="margin-bottom: 8px;">New Chat Message</h2>
+        <p style="margin: 0 0 16px;">Hi ${safeRecipientName},</p>
+        <p style="margin: 0 0 16px;">You have received a new message from ${senderType} <strong>${safeSenderName}</strong>.</p>
+        <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; font-style: italic;">
+          "${messagePreview}"
+        </div>
+        <p style="margin: 0;"><a href="${process.env.CLIENT_ORIGIN || 'http://localhost:5173'}" style="color: #1EBDB8; text-decoration: none; font-weight: bold;">Log in to reply</a></p>
+      </div>
+    `
+  };
+
+  await getTransporter().sendMail(mailOptions);
+};

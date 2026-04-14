@@ -4,6 +4,36 @@ import ChatMessage from '../models/ChatMessage.js';
 import { requireRoleAuth } from '../middlewares/auth/requireRoleAuth.js';
 import { Doctor } from '../models/Doctor.js';
 import { Patient } from '../models/Patient.js';
+import { Appointment } from '../models/Appointment.js';
+import { sendNewChatMessageEmail } from '../services/mailService.js';
+
+const parseAppointmentDateTimeChat = (date, time) => {
+  const parsedDate = new Date(`${date}T${time}:00`);
+  if (Number.isNaN(parsedDate.getTime())) return null;
+  return parsedDate;
+};
+
+export const hasActiveChatSession = async (user1Id, user2Id) => {
+  const appointments = await Appointment.find({
+    $or: [
+      { doctorId: user1Id, patientId: user2Id },
+      { doctorId: user2Id, patientId: user1Id }
+    ],
+    bookingStatus: 'confirmed',
+    paymentStatus: 'succeeded'
+  }).lean();
+
+  const now = new Date();
+  
+  for (const appt of appointments) {
+    const end = parseAppointmentDateTimeChat(appt.appointmentDate, appt.toTime);
+    // If the appointment's end time hasn't passed, they can chat.
+    if (!end || now.getTime() < end.getTime()) {
+      return true;
+    }
+  }
+  return false;
+};
 
 const router = express.Router();
 
@@ -14,24 +44,33 @@ const ROLE_TO_MODEL = {
   'medical-store': 'MedicalStore'
 };
 
-const getDisplayNameFor = async (id, modelName) => {
+const getPartnerInfoFor = async (id, modelName) => {
   try {
-    if (!id) return '';
+    if (!id) return { name: '', avatarUrl: '', plan: '' };
 
     if (modelName === 'Doctor') {
       const d = await Doctor.findById(id).lean();
-      return d ? String(d.fullName || '') : '';
+      if (!d) return { name: '', avatarUrl: '', plan: '' };
+      return {
+        name: String(d.fullName || ''),
+        avatarUrl: String(d.avatarDocument?.url || ''),
+        plan: String(d.currentPlan || 'platinum')
+      };
     }
 
     if (modelName === 'Patient') {
       const p = await Patient.findById(id).lean();
-      if (!p) return '';
-      return `${String(p.firstName || '')} ${String(p.lastName || '')}`.trim();
+      if (!p) return { name: '', avatarUrl: '', plan: '' };
+      return {
+        name: `${String(p.firstName || '')} ${String(p.lastName || '')}`.trim(),
+        avatarUrl: String(p.avatarDocument?.url || ''),
+        plan: ''
+      };
     }
 
-    return '';
+    return { name: '', avatarUrl: '', plan: '' };
   } catch (err) {
-    return '';
+    return { name: '', avatarUrl: '', plan: '' };
   }
 };
 
@@ -45,10 +84,16 @@ router.get('/messages/:otherUserId', requireRoleAuth(), async (req, res) => {
       return res.status(400).json({ message: 'Missing user id' });
     }
 
+    // Mark messages sent to this user as read
+    await ChatMessage.updateMany(
+      { to: new mongoose.Types.ObjectId(userId), from: new mongoose.Types.ObjectId(otherId), readAt: null },
+      { $set: { readAt: new Date() } }
+    );
+
     const messages = await ChatMessage.find({
       $or: [
-        { from: mongoose.Types.ObjectId(userId), to: mongoose.Types.ObjectId(otherId) },
-        { from: mongoose.Types.ObjectId(otherId), to: mongoose.Types.ObjectId(userId) }
+        { from: new mongoose.Types.ObjectId(userId), to: new mongoose.Types.ObjectId(otherId) },
+        { from: new mongoose.Types.ObjectId(otherId), to: new mongoose.Types.ObjectId(userId) }
       ]
     })
       .sort({ createdAt: 1 })
@@ -63,7 +108,7 @@ router.get('/messages/:otherUserId', requireRoleAuth(), async (req, res) => {
 // Conversations list (last message per partner)
 router.get('/conversations', requireRoleAuth(), async (req, res) => {
   try {
-    const userId = mongoose.Types.ObjectId(String(req.user.id || '').trim());
+    const userId = new mongoose.Types.ObjectId(String(req.user.id || '').trim());
 
     const agg = await ChatMessage.aggregate([
       { $match: { $or: [{ from: userId }, { to: userId }] } },
@@ -87,13 +132,26 @@ router.get('/conversations', requireRoleAuth(), async (req, res) => {
       const lastFrom = last.from ? String(last.from) : '';
       const partnerModel = lastFrom === String(userId) ? last.toModel : last.fromModel;
 
-      const displayName = await getDisplayNameFor(partnerId, partnerModel);
+      if (!(await hasActiveChatSession(userId, partnerId))) {
+        continue;
+      }
+
+      const partnerInfo = await getPartnerInfoFor(partnerId, partnerModel);
+
+      const unreadCount = await ChatMessage.countDocuments({
+        from: new mongoose.Types.ObjectId(partnerId),
+        to: new mongoose.Types.ObjectId(userId),
+        readAt: null
+      });
 
       results.push({
         partnerId,
         partnerModel,
-        partnerName: displayName,
-        lastMessage: last
+        partnerName: partnerInfo.name,
+        partnerAvatar: partnerInfo.avatarUrl,
+        partnerPlan: partnerInfo.plan,
+        lastMessage: last,
+        unreadCount
       });
     }
 
@@ -116,18 +174,46 @@ router.post('/messages', requireRoleAuth(), async (req, res) => {
       return res.status(400).json({ message: 'Invalid payload' });
     }
 
+    if (!(await hasActiveChatSession(userId, to))) {
+      return res.status(403).json({ message: 'Cannot chat without an active or upcoming appointment' });
+    }
+
     const fromModel = ROLE_TO_MODEL[role] || 'Patient';
     // guess partner model as the inverse (if sending patient->doctor etc) - caller should set proper models
     const toModel = fromModel === 'Doctor' ? 'Patient' : 'Doctor';
 
     const message = await ChatMessage.create({
-      from: mongoose.Types.ObjectId(userId),
-      to: mongoose.Types.ObjectId(to),
+      from: new mongoose.Types.ObjectId(userId),
+      to: new mongoose.Types.ObjectId(to),
       fromModel,
       toModel,
       content,
       attachment: attachment || {}
     });
+
+    try {
+      const SenderModel = fromModel === 'Doctor' ? Doctor : Patient;
+      const RecipientModel = toModel === 'Doctor' ? Doctor : Patient;
+      
+      const [senderDoc, recipientDoc] = await Promise.all([
+        SenderModel.findById(userId).select(fromModel === 'Doctor' ? 'fullName' : 'firstName lastName').lean(),
+        RecipientModel.findById(to).select(toModel === 'Doctor' ? 'email fullName' : 'email firstName lastName').lean()
+      ]);
+
+      if (senderDoc && recipientDoc && recipientDoc.email) {
+        const senderName = fromModel === 'Doctor' ? senderDoc.fullName : `${senderDoc.firstName} ${senderDoc.lastName}`;
+        const recipientName = toModel === 'Doctor' ? recipientDoc.fullName : `${recipientDoc.firstName} ${recipientDoc.lastName}`;
+        sendNewChatMessageEmail({
+          to: recipientDoc.email,
+          recipientName,
+          senderName,
+          senderRole: fromModel.toLowerCase(),
+          messagePreview: content.length > 50 ? content.substring(0, 47) + '...' : content
+        }).catch(err => console.error('Failed to send chat email notification:', err));
+      }
+    } catch (emailErr) {
+      console.error('Failed to prepare chat email notification:', emailErr);
+    }
 
     return res.status(201).json({ message });
   } catch (error) {

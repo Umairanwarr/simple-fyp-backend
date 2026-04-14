@@ -6,10 +6,15 @@ import { fileURLToPath } from 'url';
 import { connectDB } from './config/db.js';
 import authRoutes from './routes/auth.js';
 import chatRoutes from './routes/chatRoutes.js';
+import agoraRoutes from './routes/agoraRoutes.js';
 import http from 'http';
 import jwt from 'jsonwebtoken';
 import { Server as IOServer } from 'socket.io';
 import ChatMessage from './models/ChatMessage.js';
+import { Doctor } from './models/Doctor.js';
+import { Patient } from './models/Patient.js';
+import { sendNewChatMessageEmail } from './services/mailService.js';
+import { hasActiveChatSession } from './routes/chatRoutes.js';
 
 const currentFilePath = fileURLToPath(import.meta.url);
 const srcDirectory = path.dirname(currentFilePath);
@@ -41,6 +46,7 @@ app.get('/api/health', (req, res) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/agora', agoraRoutes);
 
 const startServer = async () => {
   await connectDB();
@@ -101,6 +107,11 @@ const startServer = async () => {
             return;
           }
 
+          if (!(await hasActiveChatSession(fromId, to))) {
+            if (typeof ack === 'function') ack({ ok: false, message: 'Cannot chat without an active or upcoming appointment' });
+            return;
+          }
+
           const fromModel = ROLE_TO_MODEL[role] || 'Patient';
           const toModel = fromModel === 'Doctor' ? 'Patient' : 'Doctor';
 
@@ -129,10 +140,78 @@ const startServer = async () => {
           io.to(`user:${fromId}`).emit('chat:message', out);
 
           if (typeof ack === 'function') ack({ ok: true, message: out });
+
+          // Send email notification offline (fire and forget)
+          try {
+            const SenderModel = fromModel === 'Doctor' ? Doctor : Patient;
+            const RecipientModel = toModel === 'Doctor' ? Doctor : Patient;
+            
+            const [senderDoc, recipientDoc] = await Promise.all([
+              SenderModel.findById(fromId).select(fromModel === 'Doctor' ? 'fullName' : 'firstName lastName').lean(),
+              RecipientModel.findById(to).select(toModel === 'Doctor' ? 'email fullName' : 'email firstName lastName').lean()
+            ]);
+
+            if (senderDoc && recipientDoc && recipientDoc.email) {
+              const senderName = fromModel === 'Doctor' ? senderDoc.fullName : `${senderDoc.firstName} ${senderDoc.lastName}`;
+              const recipientName = toModel === 'Doctor' ? recipientDoc.fullName : `${recipientDoc.firstName} ${recipientDoc.lastName}`;
+              await sendNewChatMessageEmail({
+                to: recipientDoc.email,
+                recipientName,
+                senderName,
+                senderRole: fromModel.toLowerCase(),
+                messagePreview: content.length > 50 ? content.substring(0, 47) + '...' : content
+              });
+            }
+          } catch (emailErr) {
+            console.error('Failed to send chat email notification:', emailErr);
+          }
         } catch (err) {
           if (typeof ack === 'function') ack({ ok: false, message: err.message });
         }
       });
+
+      // Video Call Signaling
+      socket.on('call:initiate', (payload, ack) => {
+        try {
+          const fromId = String(socket.user.id || '').trim();
+          const to = String(payload?.to || '').trim();
+          const channelName = String(payload?.channelName || '').trim();
+          const callerName = String(payload?.callerName || 'Doctor').trim();
+          const callerAvatar = String(payload?.callerAvatar || '').trim();
+          
+          if (!to || !channelName) {
+            if (typeof ack === 'function') ack({ ok: false });
+            return;
+          }
+
+          io.to(`user:${to}`).emit('call:incoming', {
+            channelName,
+            callerId: fromId,
+            callerName,
+            callerAvatar
+          });
+
+          if (typeof ack === 'function') ack({ ok: true });
+        } catch (err) {
+          if (typeof ack === 'function') ack({ ok: false });
+        }
+      });
+
+      socket.on('call:accept', (payload) => {
+        const to = String(payload?.to || '');
+        if (to) io.to(`user:${to}`).emit('call:accepted', { patientId: socket.user.id });
+      });
+
+      socket.on('call:reject', (payload) => {
+        const to = String(payload?.to || '');
+        if (to) io.to(`user:${to}`).emit('call:rejected', { patientId: socket.user.id });
+      });
+
+      socket.on('call:end', (payload) => {
+        const to = String(payload?.to || '');
+        if (to) io.to(`user:${to}`).emit('call:ended');
+      });
+
     } catch (err) {
       // ignore
     }

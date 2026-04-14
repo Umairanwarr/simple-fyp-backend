@@ -8,6 +8,7 @@ import {
 } from './shared.js';
 import { DoctorMedia } from '../../../models/DoctorMedia.js';
 import { DoctorSubscriptionNotification } from '../../../models/DoctorSubscriptionNotification.js';
+import ChatMessage from '../../../models/ChatMessage.js';
 
 export const getDoctorNotifications = async (req, res) => {
   try {
@@ -19,7 +20,7 @@ export const getDoctorNotifications = async (req, res) => {
       return res.status(404).json({ message: 'Doctor not found' });
     }
 
-    const [appointments, mediaRecords, subscriptionNotifications] = await Promise.all([
+    const [appointments, mediaRecords, subscriptionNotifications, unreadChats] = await Promise.all([
       Appointment.find({
         doctorId: req.user?.id,
         paymentStatus: 'succeeded',
@@ -50,6 +51,14 @@ export const getDoctorNotifications = async (req, res) => {
         .select('eventType title message createdAt')
         .sort({ createdAt: -1 })
         .limit(40)
+        .lean(),
+      ChatMessage.find({
+        to: req.user?.id,
+        readAt: null
+      })
+        .populate('from', 'firstName lastName fullName')
+        .sort({ createdAt: -1 })
+        .limit(20)
         .lean()
     ]);
 
@@ -78,7 +87,19 @@ export const getDoctorNotifications = async (req, res) => {
       })
       .filter(Boolean);
 
-    const notifications = [...appointmentNotifications, ...mediaNotifications, ...subscriptionEventNotifications]
+    const chatNotifications = unreadChats.map(chat => {
+      const fromDoc = chat.from || {};
+      const senderName = chat.fromModel === 'Doctor' ? fromDoc.fullName : `${fromDoc.firstName || ''} ${fromDoc.lastName || ''}`.trim();
+      return {
+        id: String(chat._id),
+        type: 'chat_message',
+        title: `New message from ${senderName || 'Someone'}`,
+        message: chat.content,
+        createdAt: chat.createdAt
+      };
+    });
+
+    const notifications = [...appointmentNotifications, ...mediaNotifications, ...subscriptionEventNotifications, ...chatNotifications]
       .sort((firstNotification, secondNotification) => {
         return getNotificationSortTimestamp(secondNotification) - getNotificationSortTimestamp(firstNotification);
       })
