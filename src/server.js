@@ -7,6 +7,8 @@ import { connectDB } from './config/db.js';
 import authRoutes from './routes/auth.js';
 import chatRoutes from './routes/chatRoutes.js';
 import agoraRoutes from './routes/agoraRoutes.js';
+import liveStreamRoutes from './routes/liveStreamRoutes.js';
+import { LiveStream } from './models/LiveStream.js';
 import http from 'http';
 import jwt from 'jsonwebtoken';
 import { Server as IOServer } from 'socket.io';
@@ -47,6 +49,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/agora', agoraRoutes);
+app.use('/api/livestream', liveStreamRoutes);
 
 const startServer = async () => {
   await connectDB();
@@ -210,6 +213,107 @@ const startServer = async () => {
       socket.on('call:end', (payload) => {
         const to = String(payload?.to || '');
         if (to) io.to(`user:${to}`).emit('call:ended');
+      });
+
+      // ─── Live Stream Signaling ───
+      socket.on('livestream:join', (payload) => {
+        const channelName = String(payload?.channelName || '').trim();
+        if (channelName) {
+          socket.join(`stream:${channelName}`);
+          const room = io.sockets.adapter.rooms.get(`stream:${channelName}`);
+          const viewerCount = room ? room.size : 0;
+          io.to(`stream:${channelName}`).emit('livestream:viewer-count', { channelName, viewerCount });
+
+          LiveStream.findOneAndUpdate(
+            { channelName },
+            { $set: { viewerCount }, $max: { maxViewers: viewerCount } }
+          ).catch(() => {});
+        }
+      });
+
+      socket.on('livestream:leave', (payload) => {
+        const channelName = String(payload?.channelName || '').trim();
+        if (channelName) {
+          socket.leave(`stream:${channelName}`);
+          const room = io.sockets.adapter.rooms.get(`stream:${channelName}`);
+          const viewerCount = room ? room.size : 0;
+          io.to(`stream:${channelName}`).emit('livestream:viewer-count', { channelName, viewerCount });
+
+          LiveStream.findOneAndUpdate(
+            { channelName },
+            { $set: { viewerCount } }
+          ).catch(() => {});
+        }
+      });
+
+      socket.on('livestream:invite-guest', (payload) => {
+        const to = String(payload?.guestId || '').trim();
+        if (to) {
+          io.to(`user:${to}`).emit('livestream:guest-invite', {
+            streamId: payload.streamId,
+            channelName: payload.channelName,
+            hostName: payload.hostName,
+            title: payload.title
+          });
+        }
+      });
+
+      socket.on('livestream:end', (payload) => {
+        const channelName = String(payload?.channelName || '').trim();
+        if (channelName) {
+          io.to(`stream:${channelName}`).emit('livestream:ended', { channelName });
+        }
+      });
+
+      socket.on('livestream:request-cohost', (payload) => {
+        const channelName = String(payload?.channelName || '').trim();
+        if (channelName) {
+          io.to(`stream:${channelName}`).emit('livestream:cohost-request', {
+            viewerId: socket.user.id,
+            viewerName: payload.viewerName || 'A viewer',
+            streamId: payload.streamId
+          });
+        }
+      });
+
+      socket.on('livestream:accept-cohost', (payload) => {
+        const channelName = String(payload?.channelName || '').trim();
+        if (channelName) {
+          io.to(`stream:${channelName}`).emit('livestream:cohost-accepted', {
+            viewerId: payload.viewerId,
+            viewerName: payload.viewerName
+          });
+        }
+      });
+
+      socket.on('livestream:reject-cohost', (payload) => {
+        const channelName = String(payload?.channelName || '').trim();
+        if (channelName) {
+          io.to(`stream:${channelName}`).emit('livestream:cohost-rejected', {
+            viewerId: payload.viewerId
+          });
+        }
+      });
+
+      socket.on('livestream:remove-cohost', (payload) => {
+        const channelName = String(payload?.channelName || '').trim();
+        if (channelName) {
+          io.to(`stream:${channelName}`).emit('livestream:cohost-removed', {
+            viewerId: payload.viewerId
+          });
+        }
+      });
+
+      socket.on('livestream:chat', (payload) => {
+        const channelName = String(payload?.channelName || '').trim();
+        if (channelName) {
+          io.to(`stream:${channelName}`).emit('livestream:chat-message', {
+            senderId: socket.user.id,
+            senderName: payload.senderName || 'Anonymous',
+            message: String(payload.message || '').trim(),
+            timestamp: new Date().toISOString()
+          });
+        }
       });
 
     } catch (err) {
