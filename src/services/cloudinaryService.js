@@ -61,6 +61,20 @@ export const uploadDoctorMediaToCloudinary = async (file) => {
   });
 };
 
+export const uploadStoreMediaToCloudinary = async (file) => {
+  return uploadDocumentToCloudinary(file, {
+    folder: 'fyp/medical-stores/media',
+    fallbackBaseName: 'store_media'
+  });
+};
+
+export const uploadPrescriptionToCloudinary = async (file) => {
+  return uploadDocumentToCloudinary(file, {
+    folder: 'fyp/prescriptions',
+    fallbackBaseName: 'prescription'
+  });
+};
+
 const uploadDocumentToCloudinary = async (file, { folder, fallbackBaseName }) => {
   ensureCloudinaryConfigured();
 

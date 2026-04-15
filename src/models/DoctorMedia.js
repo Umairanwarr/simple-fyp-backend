@@ -5,20 +5,37 @@ const doctorMediaSchema = new mongoose.Schema(
     doctorId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Doctor',
-      required: true,
+      required: false,
+      default: null,
       index: true
     },
     doctorName: {
       type: String,
-      required: true,
+      default: '',
       trim: true
     },
     doctorEmail: {
       type: String,
-      required: true,
+      default: '',
       trim: true,
       lowercase: true
     },
+    // Uploader identity — 'doctor' (default) or 'medical-store'
+    uploaderRole: {
+      type: String,
+      enum: ['doctor', 'medical-store'],
+      default: 'doctor',
+      index: true
+    },
+    // Medical-store specific fields (populated when uploaderRole === 'medical-store')
+    storeId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'MedicalStore',
+      default: null,
+      index: true
+    },
+    storeName:  { type: String, default: '', trim: true },
+    storeEmail: { type: String, default: '', trim: true, lowercase: true },
     mediaType: {
       type: String,
       enum: ['image', 'video'],

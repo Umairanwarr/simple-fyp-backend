@@ -8,6 +8,9 @@ import authRoutes from './routes/auth.js';
 import chatRoutes from './routes/chatRoutes.js';
 import agoraRoutes from './routes/agoraRoutes.js';
 import liveStreamRoutes from './routes/liveStreamRoutes.js';
+import medicineRoutes from './routes/medicineRoutes.js';
+import storeOrderRoutes from './routes/storeOrderRoutes.js';
+import storeMediaRoutes from './routes/storeMediaRoutes.js';
 import { LiveStream } from './models/LiveStream.js';
 import http from 'http';
 import jwt from 'jsonwebtoken';
@@ -50,6 +53,9 @@ app.use('/api/auth', authRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/agora', agoraRoutes);
 app.use('/api/livestream', liveStreamRoutes);
+app.use('/api/medicines', medicineRoutes);
+app.use('/api/store-orders', storeOrderRoutes);
+app.use('/api/store-media', storeMediaRoutes);
 
 const startServer = async () => {
   await connectDB();

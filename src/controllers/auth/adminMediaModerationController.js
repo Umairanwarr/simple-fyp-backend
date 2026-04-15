@@ -36,9 +36,15 @@ const normalizeReviewStatus = (statusValue) => {
 const mapDoctorMediaModerationRecord = (mediaRecord) => {
   return {
     id: String(mediaRecord?._id || ''),
+    uploaderRole: String(mediaRecord?.uploaderRole || 'doctor'),
+    // Doctor fields
     doctorId: String(mediaRecord?.doctorId || ''),
     doctorName: String(mediaRecord?.doctorName || '').trim() || 'Doctor',
     doctorEmail: String(mediaRecord?.doctorEmail || '').trim() || 'N/A',
+    // Store fields
+    storeName: String(mediaRecord?.storeName || '').trim() || '',
+    storeEmail: String(mediaRecord?.storeEmail || '').trim() || '',
+    // Shared
     mediaType: String(mediaRecord?.mediaType || '').trim().toLowerCase() === 'video' ? 'video' : 'image',
     url: String(mediaRecord?.asset?.url || '').trim(),
     originalName: String(mediaRecord?.asset?.originalName || '').trim() || 'media-file',
