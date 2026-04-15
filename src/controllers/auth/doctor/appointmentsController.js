@@ -6,8 +6,10 @@ import {
   getStripeClient,
   mapDoctorAppointmentForDashboard,
   sendDoctorAppointmentCancelledEmail,
+  sendPatientAppointmentRescheduledEmail,
   sendPatientAppointmentCancelledEmail
 } from './shared.js';
+import { Patient } from '../../../models/Patient.js';
 
 const getAppointmentStartSortTimestamp = (appointmentRecord) => {
   const appointmentDate = String(appointmentRecord?.appointmentDate || '').trim();
@@ -52,6 +54,10 @@ const formatCurrencyInRupees = (amountInRupees) => {
   return `Rs ${normalizedAmount.toLocaleString('en-PK')}`;
 };
 
+const normalizeRescheduleReason = (reasonValue) => {
+  return String(reasonValue || '').trim().replace(/\s+/g, ' ').slice(0, 500);
+};
+
 export const getDoctorAppointments = async (req, res) => {
   try {
     const doctor = await Doctor.findById(req.user?.id)
@@ -74,6 +80,30 @@ export const getDoctorAppointments = async (req, res) => {
       )
       .lean();
 
+    const patientIds = [...new Set(
+      appointments
+        .map((appointment) => String(appointment?.patientId || '').trim())
+        .filter((patientId) => mongoose.Types.ObjectId.isValid(patientId))
+    )];
+
+    const patientRecords = patientIds.length > 0
+      ? await Patient.find({
+          _id: {
+            $in: patientIds
+          }
+        })
+          .select('_id avatarDocument')
+          .lean()
+      : [];
+
+    const patientAvatarById = new Map(
+      patientRecords.map((patientRecord) => {
+        const patientId = String(patientRecord?._id || '').trim();
+        const avatarUrl = String(patientRecord?.avatarDocument?.url || '').trim();
+        return [patientId, avatarUrl];
+      })
+    );
+
     const now = new Date();
 
     const categorizedAppointments = appointments
@@ -87,28 +117,38 @@ export const getDoctorAppointments = async (req, res) => {
         };
       });
 
+    const mapAppointmentWithPatientAvatar = (entry) => {
+      const mappedAppointment = mapDoctorAppointmentForDashboard(entry.appointment, {
+        lifecycleStatus: entry.lifecycleStatus
+      });
+
+      const patientId = String(mappedAppointment?.patient?.id || '').trim();
+
+      if (!mappedAppointment.patient) {
+        mappedAppointment.patient = {};
+      }
+
+      mappedAppointment.patient.avatarUrl = patientAvatarById.get(patientId) || '';
+
+      return mappedAppointment;
+    };
+
     const upcomingAppointments = categorizedAppointments
       .filter((entry) => entry.lifecycleStatus === 'upcoming')
       .sort((firstEntry, secondEntry) => firstEntry.sortTimestamp - secondEntry.sortTimestamp)
-      .map((entry) => mapDoctorAppointmentForDashboard(entry.appointment, {
-        lifecycleStatus: entry.lifecycleStatus
-      }));
+      .map((entry) => mapAppointmentWithPatientAvatar(entry));
 
     const ongoingAppointments = categorizedAppointments
       .filter((entry) => entry.lifecycleStatus === 'ongoing')
       .sort((firstEntry, secondEntry) => firstEntry.sortTimestamp - secondEntry.sortTimestamp)
-      .map((entry) => mapDoctorAppointmentForDashboard(entry.appointment, {
-        lifecycleStatus: entry.lifecycleStatus
-      }));
+      .map((entry) => mapAppointmentWithPatientAvatar(entry));
 
     const cancelledAppointments = categorizedAppointments
       .filter((entry) => entry.lifecycleStatus === 'cancelled')
       .sort((firstEntry, secondEntry) => {
         return getCancelledSortTimestamp(secondEntry.appointment) - getCancelledSortTimestamp(firstEntry.appointment);
       })
-      .map((entry) => mapDoctorAppointmentForDashboard(entry.appointment, {
-        lifecycleStatus: entry.lifecycleStatus
-      }));
+      .map((entry) => mapAppointmentWithPatientAvatar(entry));
 
     return res.status(200).json({
       upcomingAppointments,
@@ -283,5 +323,226 @@ export const cancelDoctorUpcomingAppointment = async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ message: 'Could not cancel appointment', error: error.message });
+  }
+};
+
+export const rescheduleDoctorUpcomingAppointment = async (req, res) => {
+  try {
+    const { appointmentId } = req.params;
+    const { newSlotId, reason } = req.body || {};
+
+    if (!mongoose.Types.ObjectId.isValid(appointmentId)) {
+      return res.status(400).json({ message: 'Invalid appointment id' });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(newSlotId)) {
+      return res.status(400).json({ message: 'Valid new slot id is required' });
+    }
+
+    const normalizedReason = normalizeRescheduleReason(reason);
+
+    if (normalizedReason.length < 5) {
+      return res.status(400).json({ message: 'Reschedule reason must be at least 5 characters long' });
+    }
+
+    const appointment = await Appointment.findOne({
+      _id: appointmentId,
+      doctorId: req.user?.id
+    });
+
+    if (!appointment) {
+      return res.status(404).json({ message: 'Appointment not found' });
+    }
+
+    if (appointment.paymentStatus !== 'succeeded') {
+      return res.status(400).json({ message: 'Only paid appointments can be rescheduled' });
+    }
+
+    if (appointment.bookingStatus !== 'confirmed') {
+      return res.status(400).json({ message: 'Only confirmed appointments can be rescheduled' });
+    }
+
+    const lifecycleStatus = getDoctorAppointmentLifecycleStatus(appointment);
+
+    if (lifecycleStatus !== 'upcoming') {
+      return res.status(400).json({ message: 'Only upcoming appointments can be rescheduled' });
+    }
+
+    const lockedAmountInRupees = Math.max(0, Math.trunc(Number(appointment.amountInRupees || 0)));
+    const lockedAdminCommissionInRupees = Math.max(0, Math.trunc(Number(appointment.adminCommissionInRupees || 0)));
+    const lockedDoctorPayoutInRupees = Math.max(0, Math.trunc(Number(appointment.doctorPayoutInRupees || 0)));
+
+    const doctor = await Doctor.findById(req.user?.id)
+      .select('fullName email address availabilitySlots');
+
+    if (!doctor) {
+      return res.status(404).json({ message: 'Doctor not found' });
+    }
+
+    const selectedNewSlot = doctor.availabilitySlots.id(newSlotId);
+
+    if (!selectedNewSlot) {
+      return res.status(404).json({ message: 'Selected new slot is no longer available' });
+    }
+
+    if (String(appointment.slotId || '') === String(selectedNewSlot._id || '')) {
+      return res.status(400).json({ message: 'Please select a different slot for rescheduling' });
+    }
+
+    const nextAppointmentDate = String(selectedNewSlot?.date || '').trim();
+    const nextFromTime = String(selectedNewSlot?.fromTime || '').trim();
+    const nextToTime = String(selectedNewSlot?.toTime || '').trim();
+    const nextConsultationMode = String(selectedNewSlot?.consultationMode || '').trim().toLowerCase() === 'offline'
+      ? 'offline'
+      : 'online';
+
+    const nextAppointmentTimestamp = getAppointmentStartSortTimestamp({
+      appointmentDate: nextAppointmentDate,
+      fromTime: nextFromTime
+    });
+
+    if (!nextAppointmentTimestamp || nextAppointmentTimestamp <= Date.now()) {
+      return res.status(400).json({ message: 'Please select a future slot for rescheduling' });
+    }
+
+    const previousAppointmentDate = String(appointment.appointmentDate || '').trim();
+    const previousFromTime = String(appointment.fromTime || '').trim();
+    const previousToTime = String(appointment.toTime || '').trim();
+    const previousSlotId = String(appointment.slotId || '').trim();
+    const previousConsultationMode = String(appointment.consultationMode || '').trim().toLowerCase() === 'offline'
+      ? 'offline'
+      : 'online';
+
+    const normalizedNewSlotId = String(selectedNewSlot._id || '').trim();
+
+    const conflictingConfirmedAppointment = await Appointment.findOne({
+      doctorId: req.user?.id,
+      slotId: normalizedNewSlotId,
+      bookingStatus: 'confirmed',
+      _id: {
+        $ne: appointment._id
+      }
+    })
+      .select('_id')
+      .lean();
+
+    if (conflictingConfirmedAppointment) {
+      return res.status(409).json({ message: 'Selected new slot is already booked. Please choose another slot.' });
+    }
+
+    appointment.slotId = normalizedNewSlotId;
+    appointment.appointmentDate = nextAppointmentDate;
+    appointment.fromTime = nextFromTime;
+    appointment.toTime = nextToTime;
+    appointment.consultationMode = nextConsultationMode;
+    // Keep the originally paid amount unchanged during rescheduling.
+    appointment.amountInRupees = lockedAmountInRupees;
+    appointment.adminCommissionInRupees = lockedAdminCommissionInRupees;
+    appointment.doctorPayoutInRupees = lockedDoctorPayoutInRupees;
+    appointment.rescheduledAt = new Date();
+    appointment.rescheduledByRole = 'doctor';
+    appointment.rescheduleReason = normalizedReason;
+    appointment.previousAppointmentDate = previousAppointmentDate;
+    appointment.previousFromTime = previousFromTime;
+    appointment.previousToTime = previousToTime;
+
+    try {
+      await appointment.save();
+    } catch (saveError) {
+      if (saveError?.code === 11000) {
+        return res.status(409).json({
+          message: 'Selected new slot is already booked. Please choose another slot.'
+        });
+      }
+
+      throw saveError;
+    }
+
+    const doctorAvailabilityPullResult = await Doctor.updateOne(
+      {
+        _id: req.user?.id,
+        'availabilitySlots._id': newSlotId
+      },
+      {
+        $pull: {
+          availabilitySlots: {
+            _id: newSlotId
+          }
+        }
+      }
+    );
+
+    if (!doctorAvailabilityPullResult.modifiedCount) {
+      appointment.slotId = previousSlotId;
+      appointment.appointmentDate = previousAppointmentDate;
+      appointment.fromTime = previousFromTime;
+      appointment.toTime = previousToTime;
+      appointment.consultationMode = previousConsultationMode;
+      appointment.amountInRupees = lockedAmountInRupees;
+      appointment.adminCommissionInRupees = lockedAdminCommissionInRupees;
+      appointment.doctorPayoutInRupees = lockedDoctorPayoutInRupees;
+      appointment.rescheduledAt = null;
+      appointment.rescheduledByRole = '';
+      appointment.rescheduleReason = '';
+      appointment.previousAppointmentDate = '';
+      appointment.previousFromTime = '';
+      appointment.previousToTime = '';
+
+      await appointment.save();
+
+      return res.status(409).json({ message: 'Selected new slot is no longer available. Please choose another slot.' });
+    }
+
+    const patientEmail = String(appointment.patientEmail || '').trim().toLowerCase();
+
+    if (patientEmail) {
+      try {
+        await sendPatientAppointmentRescheduledEmail({
+          to: patientEmail,
+          patientName: appointment.patientName,
+          doctorName: appointment.doctorName,
+          previousAppointmentDate,
+          previousFromTime,
+          previousToTime,
+          appointmentDate: appointment.appointmentDate,
+          fromTime: appointment.fromTime,
+          toTime: appointment.toTime,
+          consultationMode: appointment.consultationMode,
+          amountInRupees: lockedAmountInRupees,
+          reason: normalizedReason
+        });
+      } catch (error) {
+        console.error('Patient reschedule email failed to send', {
+          appointmentId,
+          error: error?.message || 'Unknown error'
+        });
+      }
+    }
+
+    return res.status(200).json({
+      message: `Appointment rescheduled successfully. Patient has been notified. Original fee remains ${formatCurrencyInRupees(lockedAmountInRupees)}.`,
+      amountInRupees: lockedAmountInRupees,
+      pricingLocked: true,
+      appointment: mapDoctorAppointmentForDashboard(appointment, {
+        lifecycleStatus: 'upcoming'
+      })
+    });
+  } catch (error) {
+    if (error?.code === 11000) {
+      return res.status(409).json({ message: 'Selected new slot is already booked. Please choose another slot.' });
+    }
+
+    console.error('Doctor appointment reschedule failed', {
+      appointmentId: req.params?.appointmentId,
+      doctorId: req.user?.id,
+      error: error?.message || 'Unknown error'
+    });
+
+    return res.status(500).json({
+      message: error?.message
+        ? `Could not reschedule appointment: ${error.message}`
+        : 'Could not reschedule appointment',
+      error: error.message
+    });
   }
 };

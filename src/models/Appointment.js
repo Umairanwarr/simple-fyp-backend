@@ -141,6 +141,37 @@ const appointmentSchema = new mongoose.Schema(
       trim: true,
       lowercase: true
     },
+    rescheduledAt: {
+      type: Date,
+      default: null
+    },
+    rescheduledByRole: {
+      type: String,
+      default: '',
+      trim: true,
+      lowercase: true
+    },
+    rescheduleReason: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 500
+    },
+    previousAppointmentDate: {
+      type: String,
+      default: '',
+      trim: true
+    },
+    previousFromTime: {
+      type: String,
+      default: '',
+      trim: true
+    },
+    previousToTime: {
+      type: String,
+      default: '',
+      trim: true
+    },
     refundStatus: {
       type: String,
       enum: ['not_requested', 'pending', 'succeeded', 'failed', 'not_applicable'],

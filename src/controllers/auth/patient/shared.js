@@ -317,6 +317,7 @@ export const mapPatientNotificationFromAppointment = (appointmentRecord) => {
   const bookingStatus = String(appointmentRecord?.bookingStatus || '').trim();
   const paymentStatus = String(appointmentRecord?.paymentStatus || '').trim();
   const cancelledByRole = String(appointmentRecord?.cancelledByRole || '').trim().toLowerCase();
+  const rescheduledByRole = String(appointmentRecord?.rescheduledByRole || '').trim().toLowerCase();
   const refundStatus = String(appointmentRecord?.refundStatus || '').trim().toLowerCase();
   const refundAmountInRupees = Math.max(0, Math.trunc(Number(appointmentRecord?.refundAmountInRupees || 0)));
 
@@ -324,12 +325,36 @@ export const mapPatientNotificationFromAppointment = (appointmentRecord) => {
   const fromTime = String(appointmentRecord?.fromTime || '').trim();
   const toTime = String(appointmentRecord?.toTime || '').trim();
   const doctorName = String(appointmentRecord?.doctorName || '').trim() || 'Doctor';
+  const rescheduleReason = String(appointmentRecord?.rescheduleReason || '').trim();
+  const previousAppointmentDate = String(appointmentRecord?.previousAppointmentDate || '').trim();
+  const previousFromTime = String(appointmentRecord?.previousFromTime || '').trim();
+  const previousToTime = String(appointmentRecord?.previousToTime || '').trim();
+  const hasRescheduleInfo = Boolean(
+    appointmentRecord?.rescheduledAt
+    && previousAppointmentDate
+    && previousFromTime
+    && previousToTime
+  );
 
   if (bookingStatus !== 'cancelled' && !(bookingStatus === 'confirmed' && paymentStatus === 'succeeded')) {
     return null;
   }
 
   const isCancelled = bookingStatus === 'cancelled';
+
+  if (!isCancelled && rescheduledByRole === 'doctor' && hasRescheduleInfo) {
+    const reasonSuffix = rescheduleReason ? ` Reason: ${rescheduleReason}` : '';
+
+    return {
+      id: `${String(appointmentRecord?._id || '')}:rescheduled`,
+      appointmentId: String(appointmentRecord?._id || ''),
+      type: 'appointment_rescheduled',
+      title: 'Appointment Rescheduled',
+      message: `Your appointment with ${doctorName} was moved from ${previousAppointmentDate} (${previousFromTime} - ${previousToTime}) to ${appointmentDate} (${fromTime} - ${toTime}). No extra payment is required; your original paid fee remains unchanged.${reasonSuffix}`,
+      createdAt: new Date(appointmentRecord.rescheduledAt).toISOString()
+    };
+  }
+
   const createdAt = isCancelled
     ? appointmentRecord?.cancelledAt || appointmentRecord?.updatedAt || appointmentRecord?.createdAt
     : appointmentRecord?.paidAt || appointmentRecord?.createdAt || appointmentRecord?.updatedAt;
@@ -345,7 +370,13 @@ export const mapPatientNotificationFromAppointment = (appointmentRecord) => {
       cancellationMessage = `Your appointment with ${doctorName} on ${appointmentDate} (${fromTime} - ${toTime}) was cancelled by the doctor. Please contact support for refund updates.`;
     }
   } else if (cancelledByRole === 'patient') {
-    cancellationMessage = `Your appointment with ${doctorName} on ${appointmentDate} (${fromTime} - ${toTime}) was cancelled. No refund will be processed.`;
+    if (refundStatus === 'succeeded' && refundAmountInRupees > 0) {
+      cancellationMessage = `Your appointment with ${doctorName} on ${appointmentDate} (${fromTime} - ${toTime}) was cancelled. Full refund of Rs ${refundAmountInRupees.toLocaleString('en-PK')} has been processed.`;
+    } else if (refundStatus === 'pending' && refundAmountInRupees > 0) {
+      cancellationMessage = `Your appointment with ${doctorName} on ${appointmentDate} (${fromTime} - ${toTime}) was cancelled. Full refund of Rs ${refundAmountInRupees.toLocaleString('en-PK')} is being processed.`;
+    } else {
+      cancellationMessage = `Your appointment with ${doctorName} on ${appointmentDate} (${fromTime} - ${toTime}) was cancelled. Refund is only available within 15 minutes of booking.`;
+    }
   }
 
   return {
@@ -355,7 +386,7 @@ export const mapPatientNotificationFromAppointment = (appointmentRecord) => {
     title: isCancelled ? 'Appointment Cancelled' : 'Appointment Confirmed',
     message: isCancelled
       ? cancellationMessage
-      : `Your appointment with ${doctorName} on ${appointmentDate} (${fromTime} - ${toTime}) is booked successfully.`,
+      : `Your appointment with ${doctorName} on ${appointmentDate} (${fromTime} - ${toTime}) is booked successfully. Cancel within 15 minutes of booking for a full refund.`,
     createdAt: createdAt ? new Date(createdAt).toISOString() : null
   };
 };

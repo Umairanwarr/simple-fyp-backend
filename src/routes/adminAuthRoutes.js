@@ -3,6 +3,7 @@ import {
   getAdminNotifications,
   markAdminNotificationsAsRead,
   deleteDoctorReviewForAdmin,
+  getDoctorSubscriptionPricingForAdmin,
   deleteClinicForAdmin,
   deleteDoctorForAdmin,
   deleteMedicalStoreForAdmin,
@@ -14,10 +15,15 @@ import {
   getAdminStats,
   getPatientsForAdmin,
   loginAdmin,
+  updateDoctorSubscriptionPricingForAdmin,
   reviewClinicApplicationForAdmin,
   reviewMedicalStoreApplicationForAdmin,
   reviewDoctorApplicationForAdmin
 } from '../controllers/auth/adminAuthController.js';
+import {
+  getAdminDoctorMediaModeration,
+  reviewAdminDoctorMedia
+} from '../controllers/auth/adminMediaModerationController.js';
 import { requireAdminAuth } from '../middlewares/auth/requireAdminAuth.js';
 
 const router = express.Router();
@@ -39,5 +45,9 @@ router.get('/notifications', requireAdminAuth, getAdminNotifications);
 router.patch('/notifications/read', requireAdminAuth, markAdminNotificationsAsRead);
 router.get('/reviews', requireAdminAuth, getDoctorReviewsForAdmin);
 router.delete('/reviews/:reviewId', requireAdminAuth, deleteDoctorReviewForAdmin);
+router.get('/subscription-pricing/doctor', requireAdminAuth, getDoctorSubscriptionPricingForAdmin);
+router.patch('/subscription-pricing/doctor', requireAdminAuth, updateDoctorSubscriptionPricingForAdmin);
+router.get('/media-moderation', requireAdminAuth, getAdminDoctorMediaModeration);
+router.patch('/media-moderation/:mediaId/review', requireAdminAuth, reviewAdminDoctorMedia);
 
 export default router;

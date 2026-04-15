@@ -1,6 +1,10 @@
 import express from 'express';
 import {
+  cancelDoctorSubscription,
   cancelDoctorUpcomingAppointment,
+  confirmDoctorSubscriptionCheckoutSession,
+  createDoctorSubscriptionCheckoutSession,
+  deleteDoctorMedia,
   createDoctorAvailability,
   deleteDoctorAvailabilitySlot,
   getDoctorAnalytics,
@@ -9,19 +13,25 @@ import {
   getDoctorProfile,
   getDoctorReviews,
   getDoctorSchedule,
+  getDoctorMediaLibrary,
+  getDoctorSubscriptionStatus,
+  getDoctorSubscriptionPricing,
   getDoctorAvailability,
   loginDoctor,
   markDoctorNotificationsAsRead,
   registerDoctor,
+  rescheduleDoctorUpcomingAppointment,
   sendDoctorLoginOtp,
   sendDoctorVerificationOtp,
   updateDoctorProfile,
   updateDoctorAvailabilitySlot,
   updateDoctorAvatar,
+  uploadDoctorMedia,
   verifyDoctorOtp
 } from '../controllers/auth/doctor/index.js';
 import { requireRoleAuth } from '../middlewares/auth/requireRoleAuth.js';
 import { handleAvatarUpload } from '../middlewares/uploadAvatar.js';
+import { handleDoctorMediaUpload } from '../middlewares/uploadDoctorMedia.js';
 import { handleDoctorLicenseUpload } from '../middlewares/uploadDoctorLicense.js';
 
 const router = express.Router();
@@ -37,7 +47,16 @@ router.patch('/notifications/read', requireRoleAuth(['doctor']), markDoctorNotif
 router.get('/reviews', requireRoleAuth(['doctor']), getDoctorReviews);
 router.get('/schedule', requireRoleAuth(['doctor']), getDoctorSchedule);
 router.get('/appointments', requireRoleAuth(['doctor']), getDoctorAppointments);
+router.get('/subscription-pricing', requireRoleAuth(['doctor']), getDoctorSubscriptionPricing);
+router.get('/subscription/status', requireRoleAuth(['doctor']), getDoctorSubscriptionStatus);
+router.post('/subscription/checkout-session', requireRoleAuth(['doctor']), createDoctorSubscriptionCheckoutSession);
+router.post('/subscription/confirm', requireRoleAuth(['doctor']), confirmDoctorSubscriptionCheckoutSession);
+router.patch('/subscription/cancel', requireRoleAuth(['doctor']), cancelDoctorSubscription);
 router.patch('/appointments/:appointmentId/cancel', requireRoleAuth(['doctor']), cancelDoctorUpcomingAppointment);
+router.patch('/appointments/:appointmentId/reschedule', requireRoleAuth(['doctor']), rescheduleDoctorUpcomingAppointment);
+router.get('/media', requireRoleAuth(['doctor']), getDoctorMediaLibrary);
+router.post('/media', requireRoleAuth(['doctor']), handleDoctorMediaUpload, uploadDoctorMedia);
+router.delete('/media/:mediaId', requireRoleAuth(['doctor']), deleteDoctorMedia);
 router.get('/profile', requireRoleAuth(['doctor']), getDoctorProfile);
 router.patch('/profile', requireRoleAuth(['doctor']), updateDoctorProfile);
 router.get('/availability', requireRoleAuth(['doctor']), getDoctorAvailability);
