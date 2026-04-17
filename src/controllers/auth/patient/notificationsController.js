@@ -6,6 +6,8 @@ import {
   mapPatientNotificationFromAppointment
 } from './shared.js';
 import ChatMessage from '../../../models/ChatMessage.js';
+import Prescription from '../../../models/Prescription.js';
+import { StoreOrderNotification } from '../../../models/StoreOrderNotification.js';
 
 export const getPatientNotifications = async (req, res) => {
   try {
@@ -52,7 +54,47 @@ export const getPatientNotifications = async (req, res) => {
       };
     });
 
-    const notifications = [...appointments.map((appointment) => mapPatientNotificationFromAppointment(appointment)).filter(Boolean), ...chatNotifications]
+    // Prescription notifications — fetch recent prescriptions for this patient
+    const recentPrescriptions = await Prescription.find({ patientId: req.user?.id })
+      .populate('doctorId', 'fullName')
+      .sort({ createdAt: -1 })
+      .limit(20)
+      .lean();
+
+    const prescriptionNotifications = recentPrescriptions.map(rx => {
+      const doctorName = String(rx.doctorId?.fullName || 'Your Doctor').trim();
+      return {
+        id: `rx:${String(rx._id)}`,
+        type: 'prescription_received',
+        title: 'New Prescription Received',
+        message: `Dr. ${doctorName} has sent you a new prescription. Tap to view it.`,
+        createdAt: rx.createdAt
+      };
+    });
+
+    // Store order notifications (accepted / declined)
+    const storeOrderNotifs = await StoreOrderNotification.find({
+      patientId: req.user?.id,
+      eventType: { $in: ['order_accepted', 'order_declined'] }
+    })
+      .sort({ createdAt: -1 })
+      .limit(20)
+      .lean();
+
+    const storeOrderNotifications = storeOrderNotifs.map(n => ({
+      id: String(n._id),
+      type: n.eventType,
+      title: String(n.title || 'Order Update'),
+      message: String(n.message || ''),
+      createdAt: n.createdAt
+    }));
+
+    const notifications = [
+      ...appointments.map((appointment) => mapPatientNotificationFromAppointment(appointment)).filter(Boolean),
+      ...chatNotifications,
+      ...prescriptionNotifications,
+      ...storeOrderNotifications
+    ]
       .filter(Boolean)
       .sort((firstNotification, secondNotification) => {
         return getNotificationSortTimestamp(secondNotification) - getNotificationSortTimestamp(firstNotification);

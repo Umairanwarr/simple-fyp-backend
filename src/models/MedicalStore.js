@@ -132,6 +132,89 @@ const medicalStoreSchema = new mongoose.Schema(
         type: Number,
         default: null
       }
+    },
+    currentPlan: {
+      type: String,
+      enum: ['platinum', 'gold', 'diamond'],
+      default: 'platinum'
+    },
+    subscriptionStatus: {
+      type: String,
+      enum: ['active', 'cancelled', 'expired'],
+      default: 'active'
+    },
+    planActivatedAt: {
+      type: Date,
+      default: Date.now
+    },
+    planExpiresAt: {
+      type: Date,
+      default: null
+    },
+    planCancelledAt: {
+      type: Date,
+      default: null
+    },
+    lastPlanPaymentAt: {
+      type: Date,
+      default: null
+    },
+    lastPlanCheckoutSessionId: {
+      type: String,
+      default: ''
+    },
+    lastPlanPaymentIntentId: {
+      type: String,
+      default: ''
+    },
+    stripeCustomerId: {
+      type: String,
+      default: ''
+    },
+    notificationsSeenAt: {
+      type: Date,
+      default: Date.now
+    },
+    bio: {
+      type: String,
+      default: '',
+      trim: true
+    },
+    reviews: [
+      {
+        patientId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'Patient',
+          required: true
+        },
+        patientName: {
+          type: String,
+          required: true
+        },
+        rating: {
+          type: Number,
+          required: true,
+          min: 1,
+          max: 5
+        },
+        comment: {
+          type: String,
+          default: '',
+          maxlength: 1000
+        },
+        createdAt: {
+          type: Date,
+          default: Date.now
+        }
+      }
+    ],
+    averageRating: {
+      type: Number,
+      default: 0
+    },
+    totalReviews: {
+      type: Number,
+      default: 0
     }
   },
   {

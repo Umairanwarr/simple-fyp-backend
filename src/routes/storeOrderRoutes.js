@@ -6,7 +6,9 @@ import {
   getStoreOrderById,
   updateOrderStatus,
   deleteStoreOrder,
-  submitPatientOrder
+  submitPatientOrder,
+  acceptOrder,
+  declineOrder
 } from '../controllers/storeOrderController.js';
 
 const router = express.Router();
@@ -20,6 +22,8 @@ router.use(requireRoleAuth(['medical-store']));
 router.get('/', getStoreOrders);
 router.get('/:id', getStoreOrderById);
 router.patch('/:id/status', updateOrderStatus);
+router.patch('/:id/accept', acceptOrder);
+router.patch('/:id/decline', declineOrder);
 router.delete('/:id', deleteStoreOrder);
 
 export default router;

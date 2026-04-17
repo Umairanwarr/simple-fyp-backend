@@ -1,15 +1,18 @@
 import {
   Doctor,
+  MedicalStore,
   Patient,
   fetchPatientFavoriteDoctors,
+  fetchPatientFavoriteStores,
   mapFavoriteDoctorIdStrings,
+  mapFavoriteStoreIdStrings,
   mongoose
 } from './shared.js';
 
 export const getPatientFavoriteDoctors = async (req, res) => {
   try {
     const patient = await Patient.findById(req.user?.id)
-      .select('favoriteDoctorIds')
+      .select('favoriteDoctorIds favoriteStoreIds')
       .lean();
 
     if (!patient) {
@@ -17,11 +20,19 @@ export const getPatientFavoriteDoctors = async (req, res) => {
     }
 
     const favoriteDoctorIds = mapFavoriteDoctorIdStrings(patient);
-    const doctors = await fetchPatientFavoriteDoctors(favoriteDoctorIds);
+    const favoriteStoreIds = mapFavoriteStoreIdStrings(patient);
+
+    const [doctors, stores] = await Promise.all([
+      fetchPatientFavoriteDoctors(favoriteDoctorIds),
+      fetchPatientFavoriteStores(favoriteStoreIds)
+    ]);
+
+    const combinedFavorites = [...doctors, ...stores];
 
     return res.status(200).json({
-      doctors,
-      favoriteDoctorIds: doctors.map((doctor) => String(doctor.id))
+      doctors: combinedFavorites,
+      favoriteDoctorIds: doctors.map((doctor) => String(doctor.id)),
+      favoriteStoreIds: stores.map((store) => String(store.id))
     });
   } catch (error) {
     return res.status(500).json({ message: 'Could not fetch favorite doctors', error: error.message });
@@ -33,43 +44,54 @@ export const addDoctorToPatientFavorites = async (req, res) => {
     const { doctorId } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(doctorId)) {
-      return res.status(400).json({ message: 'Invalid doctor id' });
+      return res.status(400).json({ message: 'Invalid id' });
     }
 
-    const patient = await Patient.findById(req.user?.id).select('favoriteDoctorIds');
+    const patient = await Patient.findById(req.user?.id).select('favoriteDoctorIds favoriteStoreIds');
 
     if (!patient) {
       return res.status(404).json({ message: 'Patient not found' });
     }
 
-    const normalizedDoctorId = String(doctorId).trim();
-    const existingFavoriteDoctorIds = mapFavoriteDoctorIdStrings(patient);
-    const isAlreadyFavorite = existingFavoriteDoctorIds.includes(normalizedDoctorId);
+    const normalizedId = String(doctorId).trim();
+    
+    // Check if it's a doctor or a store
+    const [doctor, store] = await Promise.all([
+      Doctor.findOne({ _id: normalizedId, applicationStatus: { $ne: 'declined' }, emailVerified: true }).select('_id').lean(),
+      MedicalStore.findOne({ _id: normalizedId, applicationStatus: 'approved', emailVerified: true }).select('_id').lean()
+    ]);
 
-    if (!isAlreadyFavorite) {
-      const doctor = await Doctor.findOne({
-        _id: normalizedDoctorId,
-        applicationStatus: { $ne: 'declined' },
-        emailVerified: true
-      })
-        .select('_id')
-        .lean();
+    if (!doctor && !store) {
+      return res.status(404).json({ message: 'Entity not found' });
+    }
 
-      if (!doctor) {
-        return res.status(404).json({ message: 'Doctor not found' });
+    if (doctor) {
+      const existingFavoriteDoctorIds = mapFavoriteDoctorIdStrings(patient);
+      if (!existingFavoriteDoctorIds.includes(normalizedId)) {
+        patient.favoriteDoctorIds = [...existingFavoriteDoctorIds, normalizedId];
+        await patient.save();
       }
-
-      patient.favoriteDoctorIds = [...existingFavoriteDoctorIds, normalizedDoctorId];
-      await patient.save();
+    } else if (store) {
+      const existingFavoriteStoreIds = mapFavoriteStoreIdStrings(patient);
+      if (!existingFavoriteStoreIds.includes(normalizedId)) {
+        patient.favoriteStoreIds = [...existingFavoriteStoreIds, normalizedId];
+        await patient.save();
+      }
     }
 
     const favoriteDoctorIds = mapFavoriteDoctorIdStrings(patient);
-    const doctors = await fetchPatientFavoriteDoctors(favoriteDoctorIds);
+    const favoriteStoreIds = mapFavoriteStoreIdStrings(patient);
+
+    const [doctors, stores] = await Promise.all([
+      fetchPatientFavoriteDoctors(favoriteDoctorIds),
+      fetchPatientFavoriteStores(favoriteStoreIds)
+    ]);
 
     return res.status(200).json({
-      message: 'Doctor added to favorites',
-      doctors,
-      favoriteDoctorIds: doctors.map((doctor) => String(doctor.id))
+      message: 'Added to favorites',
+      doctors: [...doctors, ...stores],
+      favoriteDoctorIds: doctors.map((d) => String(d.id)),
+      favoriteStoreIds: stores.map((s) => String(s.id))
     });
   } catch (error) {
     return res.status(500).json({ message: 'Could not update favorites', error: error.message });
@@ -81,28 +103,32 @@ export const removeDoctorFromPatientFavorites = async (req, res) => {
     const { doctorId } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(doctorId)) {
-      return res.status(400).json({ message: 'Invalid doctor id' });
+      return res.status(400).json({ message: 'Invalid id' });
     }
 
-    const patient = await Patient.findById(req.user?.id).select('favoriteDoctorIds');
+    const patient = await Patient.findById(req.user?.id).select('favoriteDoctorIds favoriteStoreIds');
 
     if (!patient) {
       return res.status(404).json({ message: 'Patient not found' });
     }
 
-    const normalizedDoctorId = String(doctorId).trim();
-    const nextFavoriteDoctorIds = mapFavoriteDoctorIdStrings(patient)
-      .filter((favoriteDoctorId) => favoriteDoctorId !== normalizedDoctorId);
-
-    patient.favoriteDoctorIds = nextFavoriteDoctorIds;
+    const normalizedId = String(doctorId).trim();
+    
+    patient.favoriteDoctorIds = mapFavoriteDoctorIdStrings(patient).filter(id => id !== normalizedId);
+    patient.favoriteStoreIds = mapFavoriteStoreIdStrings(patient).filter(id => id !== normalizedId);
+    
     await patient.save();
 
-    const doctors = await fetchPatientFavoriteDoctors(nextFavoriteDoctorIds);
+    const [doctors, stores] = await Promise.all([
+      fetchPatientFavoriteDoctors(patient.favoriteDoctorIds),
+      fetchPatientFavoriteStores(patient.favoriteStoreIds)
+    ]);
 
     return res.status(200).json({
-      message: 'Doctor removed from favorites',
-      doctors,
-      favoriteDoctorIds: doctors.map((doctor) => String(doctor.id))
+      message: 'Removed from favorites',
+      doctors: [...doctors, ...stores],
+      favoriteDoctorIds: doctors.map((d) => String(d.id)),
+      favoriteStoreIds: stores.map((s) => String(s.id))
     });
   } catch (error) {
     return res.status(500).json({ message: 'Could not update favorites', error: error.message });

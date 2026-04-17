@@ -26,21 +26,37 @@ const storeOrderSchema = new mongoose.Schema(
     patientName: { type: String, required: true, trim: true },
     patientPhone: { type: String, default: '', trim: true },
     patientEmail: { type: String, default: '', trim: true, lowercase: true },
+    patientImage: { type: String, default: '' },
 
-    // What they need
+    // Cart items
+    items: [
+      {
+        medicineId: { type: mongoose.Schema.Types.ObjectId, ref: 'Medicine', required: true },
+        name: { type: String, required: true },
+        quantity: { type: Number, required: true, min: 1 },
+        price: { type: Number, required: true }
+      }
+    ],
+    totalAmount: { type: Number, required: true, default: 0 },
     notes: { type: String, default: '' },
+
+    // Payment
+    paymentMethod: { type: String, enum: ['stripe', 'cod'], default: 'cod' },
+    paymentStatus: { type: String, enum: ['pending', 'paid', 'refunded', 'failed'], default: 'pending' },
+    stripePaymentIntentId: { type: String, default: null },
 
     // Prescription files uploaded by the patient
     prescriptions: [prescriptionSchema],
 
     status: {
       type: String,
-      enum: ['pending', 'reviewing', 'ready', 'completed', 'cancelled'],
+      enum: ['pending', 'reviewing', 'accepted', 'ready', 'completed', 'cancelled'],
       default: 'pending'
     },
 
-    // Internal store notes
-    storeNote: { type: String, default: '' }
+    // Internal store notes & rejection reason
+    storeNote: { type: String, default: '' },
+    rejectionReason: { type: String, default: '' }
   },
   { timestamps: true }
 );

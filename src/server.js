@@ -271,6 +271,16 @@ const startServer = async () => {
         }
       });
 
+      socket.on('livestream:admin-terminate', (payload) => {
+        const channelName = String(payload?.channelName || '').trim();
+        if (channelName) {
+          io.to(`stream:${channelName}`).emit('livestream:admin-terminated', { 
+            channelName, 
+            reason: payload.reason || 'Terminated by Admin' 
+          });
+        }
+      });
+
       socket.on('livestream:request-cohost', (payload) => {
         const channelName = String(payload?.channelName || '').trim();
         if (channelName) {

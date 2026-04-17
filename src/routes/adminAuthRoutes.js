@@ -16,6 +16,8 @@ import {
   getPatientsForAdmin,
   loginAdmin,
   updateDoctorSubscriptionPricingForAdmin,
+  getStoreSubscriptionPricingForAdmin,
+  updateStoreSubscriptionPricingForAdmin,
   reviewClinicApplicationForAdmin,
   reviewMedicalStoreApplicationForAdmin,
   reviewDoctorApplicationForAdmin
@@ -24,6 +26,10 @@ import {
   getAdminDoctorMediaModeration,
   reviewAdminDoctorMedia
 } from '../controllers/auth/adminMediaModerationController.js';
+import {
+  getAdminWithdrawRequests,
+  reviewWithdrawRequest
+} from '../controllers/auth/admin/withdrawController.js';
 import { requireAdminAuth } from '../middlewares/auth/requireAdminAuth.js';
 
 const router = express.Router();
@@ -47,7 +53,11 @@ router.get('/reviews', requireAdminAuth, getDoctorReviewsForAdmin);
 router.delete('/reviews/:reviewId', requireAdminAuth, deleteDoctorReviewForAdmin);
 router.get('/subscription-pricing/doctor', requireAdminAuth, getDoctorSubscriptionPricingForAdmin);
 router.patch('/subscription-pricing/doctor', requireAdminAuth, updateDoctorSubscriptionPricingForAdmin);
+router.get('/subscription-pricing/medical-store', requireAdminAuth, getStoreSubscriptionPricingForAdmin);
+router.patch('/subscription-pricing/medical-store', requireAdminAuth, updateStoreSubscriptionPricingForAdmin);
 router.get('/media-moderation', requireAdminAuth, getAdminDoctorMediaModeration);
 router.patch('/media-moderation/:mediaId/review', requireAdminAuth, reviewAdminDoctorMedia);
+router.get('/withdraw-requests', requireAdminAuth, getAdminWithdrawRequests);
+router.patch('/withdraw-requests/:requestId/review', requireAdminAuth, reviewWithdrawRequest);
 
 export default router;

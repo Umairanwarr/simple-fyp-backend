@@ -696,3 +696,208 @@ export const sendNewChatMessageEmail = async ({
 
   await getTransporter().sendMail(mailOptions);
 };
+
+export const sendPrescriptionEmail = async ({ to, patientName, doctorName }) => {
+  ensureSmtpCredentials();
+
+  const safePatientName = String(patientName || '').trim() || 'Patient';
+  const safeDoctorName = String(doctorName || '').trim() || 'Your Doctor';
+
+  const mailOptions = {
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject: `New Prescription from Dr. ${safeDoctorName}`,
+    text: [
+      `Hi ${safePatientName},`,
+      '',
+      `Dr. ${safeDoctorName} has sent you a new prescription.`,
+      'Please log in to your account to view it in your Prescriptions section.',
+      '',
+      'Thank you for using Simple.'
+    ].join('\n'),
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; color: #1f2937;">
+        <h2 style="margin-bottom: 8px; color: #1EBDB8;">New Prescription Received</h2>
+        <p style="margin: 0 0 16px;">Hi ${safePatientName},</p>
+        <p style="margin: 0 0 16px;">
+          <strong>Dr. ${safeDoctorName}</strong> has issued you a new prescription.
+        </p>
+        <div style="background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 10px; padding: 14px 16px; margin-bottom: 20px;">
+          <p style="margin: 0;">Log in to your account and navigate to the <strong>Prescriptions</strong> tab to view the full details.</p>
+        </div>
+        <p style="margin: 0;"><a href="${process.env.CLIENT_ORIGIN || 'http://localhost:5173'}/dashboard/prescriptions" style="color: #1EBDB8; text-decoration: none; font-weight: bold;">View Prescription &rarr;</a></p>
+      </div>
+    `
+  };
+
+  await getTransporter().sendMail(mailOptions);
+};
+
+export const sendWithdrawApprovedEmail = async ({ to, doctorName, amountInRupees, bankName, accountNumber }) => {
+  ensureSmtpCredentials();
+  const safeName = String(doctorName || 'Doctor').trim();
+  const amountText = `Rs ${Math.trunc(Number(amountInRupees || 0)).toLocaleString('en-PK')}`;
+  const mailOptions = {
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject: 'Withdrawal Request Approved',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; color: #1f2937;">
+        <h2 style="color: #15803d; margin-bottom: 8px;">Withdrawal Approved ✓</h2>
+        <p>Hi Dr. ${safeName},</p>
+        <p>Your withdrawal request of <strong>${amountText}</strong> has been <strong style="color:#15803d;">approved</strong>.</p>
+        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px 16px;margin:16px 0;">
+          <p style="margin:0 0 6px;"><strong>Amount:</strong> ${amountText}</p>
+          <p style="margin:0 0 6px;"><strong>Bank:</strong> ${String(bankName || '').trim() || 'N/A'}</p>
+          <p style="margin:0;"><strong>Account:</strong> ${String(accountNumber || '').trim() || 'N/A'}</p>
+        </div>
+        <p>The funds will be transferred to your bank account within <strong>2–3 business days</strong>.</p>
+        <p style="color:#6b7280;font-size:13px;">If you have any questions, please contact our support team.</p>
+      </div>
+    `
+  };
+  await getTransporter().sendMail(mailOptions);
+};
+
+export const sendWithdrawRejectedEmail = async ({ to, doctorName, amountInRupees, rejectionReason }) => {
+  ensureSmtpCredentials();
+  const safeName = String(doctorName || 'Doctor').trim();
+  const amountText = `Rs ${Math.trunc(Number(amountInRupees || 0)).toLocaleString('en-PK')}`;
+  const mailOptions = {
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject: 'Withdrawal Request Rejected',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; color: #1f2937;">
+        <h2 style="color: #b91c1c; margin-bottom: 8px;">Withdrawal Not Approved</h2>
+        <p>Hi Dr. ${safeName},</p>
+        <p>Your withdrawal request of <strong>${amountText}</strong> has been <strong style="color:#b91c1c;">rejected</strong>.</p>
+        ${rejectionReason ? `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:14px 16px;margin:16px 0;"><p style="margin:0;"><strong>Reason:</strong> ${rejectionReason}</p></div>` : ''}
+        <p>Your balance has <strong>not</strong> been deducted. Please contact support if you have questions.</p>
+      </div>
+    `
+  };
+  await getTransporter().sendMail(mailOptions);
+};
+
+// ─── Store Order Emails ───────────────────────────────────────────────────────
+
+export const sendStoreOrderPlacedEmail = async ({ to, patientName, storeName, items, totalAmount, paymentMethod, orderId }) => {
+  ensureSmtpCredentials();
+  const safePatientName = String(patientName || 'Patient').trim();
+  const safeStoreName = String(storeName || 'Medical Store').trim();
+  const itemsHtml = (items || []).map(i => `<li style="margin-bottom:4px;"><strong>${i.name}</strong> × ${i.quantity} — Rs ${(i.price * i.quantity).toLocaleString('en-PK')}</li>`).join('');
+  const amountText = `Rs ${Number(totalAmount || 0).toLocaleString('en-PK')}`;
+  const paymentLabel = paymentMethod === 'stripe' ? 'Online (Card)' : 'Cash on Delivery';
+
+  await getTransporter().sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject: `Order Placed — ${safeStoreName}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; color: #1f2937;">
+        <h2 style="color: #1EBDB8; margin-bottom: 8px;">Order Placed Successfully 🎉</h2>
+        <p>Hi ${safePatientName},</p>
+        <p>Your order has been placed at <strong>${safeStoreName}</strong> and is pending review.</p>
+        <div style="background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 10px; padding: 14px 16px; margin: 16px 0;">
+          <p style="margin: 0 0 8px;"><strong>Items:</strong></p>
+          <ul style="margin: 0 0 8px; padding-left: 18px;">${itemsHtml}</ul>
+          <p style="margin: 0 0 4px;"><strong>Total: ${amountText}</strong></p>
+          <p style="margin: 0;"><strong>Payment:</strong> ${paymentLabel}</p>
+        </div>
+        <p style="color: #6b7280; font-size: 13px;">The store will review your prescription and contact you to confirm the order.</p>
+      </div>
+    `
+  });
+};
+
+export const sendStoreNewOrderEmail = async ({ to, storeName, patientName, items, totalAmount, orderId }) => {
+  ensureSmtpCredentials();
+  const safeStoreName = String(storeName || 'Your Store').trim();
+  const safePatientName = String(patientName || 'A patient').trim();
+  const itemsHtml = (items || []).map(i => `<li style="margin-bottom:4px;"><strong>${i.name}</strong> × ${i.quantity} — Rs ${(i.price * i.quantity).toLocaleString('en-PK')}</li>`).join('');
+  const amountText = `Rs ${Number(totalAmount || 0).toLocaleString('en-PK')}`;
+
+  await getTransporter().sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject: `New Order Received — ${safePatientName}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; color: #1f2937;">
+        <h2 style="color: #1EBDB8; margin-bottom: 8px;">New Order Received 📦</h2>
+        <p>Hi ${safeStoreName},</p>
+        <p><strong>${safePatientName}</strong> has placed a new order that requires your review.</p>
+        <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; margin: 16px 0;">
+          <p style="margin: 0 0 8px;"><strong>Items:</strong></p>
+          <ul style="margin: 0 0 8px; padding-left: 18px;">${itemsHtml}</ul>
+          <p style="margin: 0;"><strong>Total: ${amountText}</strong></p>
+        </div>
+        <p>Please log in to review the prescription and accept or decline this order.</p>
+      </div>
+    `
+  });
+};
+
+export const sendStoreOrderAcceptedEmail = async ({ to, patientName, storeName, items, totalAmount, paymentMethod, storeNote }) => {
+  ensureSmtpCredentials();
+  const safePatientName = String(patientName || 'Patient').trim();
+  const safeStoreName = String(storeName || 'Medical Store').trim();
+  const itemsHtml = (items || []).map(i => `<li style="margin-bottom:4px;"><strong>${i.name}</strong> × ${i.quantity} — Rs ${(i.price * i.quantity).toLocaleString('en-PK')}</li>`).join('');
+  const amountText = `Rs ${Number(totalAmount || 0).toLocaleString('en-PK')}`;
+  const paymentLabel = paymentMethod === 'stripe' ? 'Online (Card) — already charged' : 'Cash on Delivery';
+
+  await getTransporter().sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject: `Your Order is Accepted — ${safeStoreName}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; color: #1f2937;">
+        <h2 style="color: #15803d; margin-bottom: 8px;">Order Accepted ✅</h2>
+        <p>Hi ${safePatientName},</p>
+        <p>Great news! <strong>${safeStoreName}</strong> has accepted your order.</p>
+        <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 14px 16px; margin: 16px 0;">
+          <p style="margin: 0 0 8px;"><strong>Items:</strong></p>
+          <ul style="margin: 0 0 8px; padding-left: 18px;">${itemsHtml}</ul>
+          <p style="margin: 0 0 4px;"><strong>Total: ${amountText}</strong></p>
+          <p style="margin: 0;"><strong>Payment:</strong> ${paymentLabel}</p>
+          ${storeNote ? `<p style="margin: 8px 0 0;"><strong>Note from store:</strong> ${storeNote}</p>` : ''}
+        </div>
+        <p>The store will prepare your medicines for delivery or pickup soon.</p>
+      </div>
+    `
+  });
+};
+
+export const sendStoreOrderRejectedEmail = async ({ to, patientName, storeName, items, totalAmount, paymentMethod, rejectionReason, refundProcessed }) => {
+  ensureSmtpCredentials();
+  const safePatientName = String(patientName || 'Patient').trim();
+  const safeStoreName = String(storeName || 'Medical Store').trim();
+  const itemsHtml = (items || []).map(i => `<li style="margin-bottom:4px;">${i.name} × ${i.quantity}</li>`).join('');
+  const amountText = `Rs ${Number(totalAmount || 0).toLocaleString('en-PK')}`;
+  const refundNote = (paymentMethod === 'stripe' && refundProcessed)
+    ? `<p style="color:#047857;"><strong>Refund of ${amountText} has been initiated</strong> to your original payment method.</p>`
+    : paymentMethod === 'stripe'
+      ? '<p style="color:#b45309;">Please contact support for refund assistance.</p>'
+      : '';
+
+  await getTransporter().sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject: `Order Declined — ${safeStoreName}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; color: #1f2937;">
+        <h2 style="color: #b91c1c; margin-bottom: 8px;">Order Declined ❌</h2>
+        <p>Hi ${safePatientName},</p>
+        <p>Unfortunately, <strong>${safeStoreName}</strong> has declined your order.</p>
+        <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px; padding: 14px 16px; margin: 16px 0;">
+          <p style="margin: 0 0 8px;"><strong>Items:</strong></p>
+          <ul style="margin: 0 0 8px; padding-left: 18px;">${itemsHtml}</ul>
+          ${rejectionReason ? `<p style="margin: 8px 0 0;"><strong>Reason:</strong> ${rejectionReason}</p>` : ''}
+        </div>
+        ${refundNote}
+        <p style="color: #6b7280; font-size: 13px;">You may try ordering from another store. Your prescription documents remain in your account.</p>
+      </div>
+    `
+  });
+};
+

@@ -74,6 +74,42 @@ const getPartnerInfoFor = async (id, modelName) => {
   }
 };
 
+// Get partner info (name + avatar) by ID — used when no existing conversation exists
+router.get('/partner/:partnerId', requireRoleAuth(), async (req, res) => {
+  try {
+    const partnerId = String(req.params.partnerId || '').trim();
+
+    if (!partnerId) {
+      return res.status(400).json({ message: 'Missing partnerId' });
+    }
+
+    // Try Doctor first
+    const doctor = await Doctor.findById(partnerId).select('fullName avatarDocument').lean();
+    if (doctor) {
+      return res.json({
+        partnerId,
+        partnerName: String(doctor.fullName || '').trim(),
+        partnerAvatar: String(doctor.avatarDocument?.url || '').trim()
+      });
+    }
+
+    // Try Patient
+    const patient = await Patient.findById(partnerId).select('firstName lastName avatarDocument').lean();
+    if (patient) {
+      const name = `${String(patient.firstName || '')} ${String(patient.lastName || '')}`.trim();
+      return res.json({
+        partnerId,
+        partnerName: name,
+        partnerAvatar: String(patient.avatarDocument?.url || '').trim()
+      });
+    }
+
+    return res.status(404).json({ message: 'Partner not found' });
+  } catch (error) {
+    return res.status(500).json({ message: error.message || 'Could not fetch partner info' });
+  }
+});
+
 // Get messages between authenticated user and other user
 router.get('/messages/:otherUserId', requireRoleAuth(), async (req, res) => {
   try {

@@ -2,6 +2,8 @@ import { Appointment } from '../../../models/Appointment.js';
 import { Doctor } from '../../../models/Doctor.js';
 import { DoctorProfileVisit } from '../../../models/DoctorProfileVisit.js';
 import { Patient } from '../../../models/Patient.js';
+import { MedicalStore } from '../../../models/MedicalStore.js';
+import ChatMessage from '../../../models/ChatMessage.js';
 import { deleteFromCloudinary, uploadUserAvatarToCloudinary } from '../../../services/cloudinaryService.js';
 import {
   sendDoctorAppointmentCancelledEmail,
@@ -21,6 +23,8 @@ export {
   Doctor,
   DoctorProfileVisit,
   Patient,
+  MedicalStore,
+  ChatMessage,
   STRIPE_CURRENCY,
   crypto,
   deleteFromCloudinary,
@@ -112,7 +116,7 @@ export const getDoctorAvatarUrl = (doctorRecord) => {
   return String(doctorRecord?.avatarDocument?.url || '').trim();
 };
 
-export const allowedConsultationModes = new Set(['online', 'offline']);
+export const allowedConsultationModes = new Set(['online', 'offline', 'video']);
 export const phoneNumberPattern = /^\d{7,15}$/;
 
 export const escapeRegex = (value) => {
@@ -181,8 +185,17 @@ export const getAppointmentLifecycleStatus = (appointmentRecord, now = new Date(
     time: appointmentRecord?.toTime
   });
 
+  const appointmentStartDateTime = parseAppointmentDateTime({
+    date: appointmentRecord?.appointmentDate,
+    time: appointmentRecord?.fromTime
+  });
+
   if (appointmentEndDateTime && appointmentEndDateTime.getTime() <= now.getTime()) {
     return 'completed';
+  }
+
+  if (appointmentStartDateTime && appointmentEndDateTime && now.getTime() >= appointmentStartDateTime.getTime() && now.getTime() < appointmentEndDateTime.getTime()) {
+    return 'ongoing';
   }
 
   return 'upcoming';
@@ -199,6 +212,10 @@ const getAppointmentStatusLabel = (lifecycleStatus) => {
 
   if (lifecycleStatus === 'upcoming') {
     return 'Booked';
+  }
+
+  if (lifecycleStatus === 'ongoing') {
+    return 'Ongoing';
   }
 
   return 'Pending';
@@ -393,6 +410,11 @@ export const mapPatientNotificationFromAppointment = (appointmentRecord) => {
 
 export const mapAppointmentForPatient = (appointmentRecord, { lifecycleStatus = null } = {}) => {
   const resolvedLifecycleStatus = lifecycleStatus || getAppointmentLifecycleStatus(appointmentRecord);
+  const consultationMode = String(appointmentRecord?.consultationMode || '').toLowerCase();
+  
+  let modeLabel = 'Online Text Consultation';
+  if (consultationMode === 'offline') modeLabel = 'Clinic Visit';
+  else if (consultationMode === 'video') modeLabel = 'Online Video Call';
 
   return {
     id: String(appointmentRecord?._id || ''),
@@ -401,8 +423,8 @@ export const mapAppointmentForPatient = (appointmentRecord, { lifecycleStatus = 
     date: String(appointmentRecord?.appointmentDate || '').trim(),
     fromTime: String(appointmentRecord?.fromTime || '').trim(),
     toTime: String(appointmentRecord?.toTime || '').trim(),
-    type: appointmentRecord?.consultationMode === 'offline' ? 'Clinic Visit' : 'Video Appointment',
-    consultationMode: appointmentRecord?.consultationMode === 'offline' ? 'offline' : 'online',
+    type: modeLabel,
+    consultationMode: consultationMode === 'offline' ? 'offline' : (consultationMode === 'video' ? 'video' : 'online'),
     amountInRupees: Math.max(0, Math.trunc(Number(appointmentRecord?.amountInRupees || 0))),
     reviewStatus: normalizeAppointmentReviewStatus(appointmentRecord),
     reviewRating: appointmentRecord?.reviewRating ? Math.max(1, Math.min(5, Number(appointmentRecord.reviewRating))) : null,
@@ -479,7 +501,26 @@ export const mapDoctorForPatientDirectory = (doctorRecord) => {
     reviews: `${totalReviews} review${totalReviews === 1 ? '' : 's'}`,
     location: String(doctorRecord?.address || '').trim() || 'Location not provided',
     availability: getDoctorNextAvailabilityLabel(doctorRecord?.availabilitySlots),
-    image: getDoctorAvatarUrl(doctorRecord) || '/topdoc.svg'
+    image: getDoctorAvatarUrl(doctorRecord) || '/topdoc.svg',
+    type: 'doctor'
+  };
+};
+
+export const mapMedicalStoreForPatientDirectory = (storeRecord) => {
+  const averageRating = Number(storeRecord?.averageRating || 0);
+  const totalReviews = Math.max(0, Math.trunc(Number(storeRecord?.totalReviews || 0)));
+
+  return {
+    id: String(storeRecord?._id),
+    name: String(storeRecord?.name || '').trim() || 'Medical Store',
+    specialty: 'Medical Store',
+    specialtyTag: 'Pharmacy',
+    rating: averageRating > 0 ? averageRating.toFixed(2) : '0.00',
+    reviews: `${totalReviews} review${totalReviews === 1 ? '' : 's'}`,
+    location: String(storeRecord?.address || '').trim() || 'Location not provided',
+    availability: String(storeRecord?.operatingHours || '').trim() || 'Check hours',
+    image: String(storeRecord?.avatarDocument?.url || '').trim() || '/pharmacy-placeholder.svg',
+    type: 'store'
   };
 };
 
@@ -543,6 +584,7 @@ export const mapDoctorSlotsByModeForPatientProfile = (doctorRecord) => {
 
   return {
     online: normalizedSlots.filter((slot) => slot.consultationMode === 'online'),
+    video: normalizedSlots.filter((slot) => slot.consultationMode === 'video'),
     offline: normalizedSlots.filter((slot) => slot.consultationMode === 'offline')
   };
 };
@@ -561,6 +603,24 @@ export const mapFavoriteDoctorIdStrings = (patientRecord) => {
       }
 
       seenDoctorIds.add(doctorId);
+      return true;
+    });
+};
+
+export const mapFavoriteStoreIdStrings = (patientRecord) => {
+  const rawFavoriteStoreIds = Array.isArray(patientRecord?.favoriteStoreIds)
+    ? patientRecord.favoriteStoreIds
+    : [];
+  const seenStoreIds = new Set();
+
+  return rawFavoriteStoreIds
+    .map((storeId) => String(storeId || '').trim())
+    .filter((storeId) => {
+      if (!storeId || seenStoreIds.has(storeId)) {
+        return false;
+      }
+
+      seenStoreIds.add(storeId);
       return true;
     });
 };
@@ -584,6 +644,27 @@ export const fetchPatientFavoriteDoctors = async (favoriteDoctorIds) => {
     .map((doctorId) => doctorById.get(String(doctorId)))
     .filter(Boolean)
     .map((doctor) => mapDoctorForPatientDirectory(doctor));
+};
+
+export const fetchPatientFavoriteStores = async (favoriteStoreIds) => {
+  if (!Array.isArray(favoriteStoreIds) || favoriteStoreIds.length === 0) {
+    return [];
+  }
+
+  const stores = await MedicalStore.find({
+    _id: { $in: favoriteStoreIds },
+    applicationStatus: 'approved',
+    emailVerified: true
+  })
+    .select('name licenseNumber address operatingHours avatarDocument bio')
+    .lean();
+
+  const storeById = new Map(stores.map((store) => [String(store._id), store]));
+
+  return favoriteStoreIds
+    .map((storeId) => storeById.get(String(storeId)))
+    .filter(Boolean)
+    .map((store) => mapMedicalStoreForPatientDirectory(store));
 };
 
 export const parseNames = (displayName, email) => {

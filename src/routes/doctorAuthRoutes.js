@@ -27,12 +27,21 @@ import {
   updateDoctorAvailabilitySlot,
   updateDoctorAvatar,
   uploadDoctorMedia,
-  verifyDoctorOtp
+  verifyDoctorOtp,
+  getDoctorCompletedPatients,
+  createDoctorPrescription,
+  getDoctorPrescriptions,
+  deleteDoctorPrescription,
+  saveDoctorBankAccount,
+  getDoctorBankAccount,
+  createWithdrawRequest,
+  getDoctorWithdrawRequests
 } from '../controllers/auth/doctor/index.js';
 import { requireRoleAuth } from '../middlewares/auth/requireRoleAuth.js';
 import { handleAvatarUpload } from '../middlewares/uploadAvatar.js';
 import { handleDoctorMediaUpload } from '../middlewares/uploadDoctorMedia.js';
 import { handleDoctorLicenseUpload } from '../middlewares/uploadDoctorLicense.js';
+import { handlePrescriptionUpload } from '../middlewares/uploadPrescription.js';
 
 const router = express.Router();
 
@@ -64,5 +73,14 @@ router.post('/availability', requireRoleAuth(['doctor']), createDoctorAvailabili
 router.patch('/availability/:slotId', requireRoleAuth(['doctor']), updateDoctorAvailabilitySlot);
 router.delete('/availability/:slotId', requireRoleAuth(['doctor']), deleteDoctorAvailabilitySlot);
 router.patch('/avatar', requireRoleAuth(['doctor']), handleAvatarUpload, updateDoctorAvatar);
+router.get('/prescriptions/patients', requireRoleAuth(['doctor']), getDoctorCompletedPatients);
+router.get('/prescriptions', requireRoleAuth(['doctor']), getDoctorPrescriptions);
+router.post('/prescriptions', requireRoleAuth(['doctor']), handlePrescriptionUpload, createDoctorPrescription);
+router.delete('/prescriptions/:prescriptionId', requireRoleAuth(['doctor']), deleteDoctorPrescription);
+
+router.get('/bank-account', requireRoleAuth(['doctor']), getDoctorBankAccount);
+router.put('/bank-account', requireRoleAuth(['doctor']), saveDoctorBankAccount);
+router.get('/withdraw-requests', requireRoleAuth(['doctor']), getDoctorWithdrawRequests);
+router.post('/withdraw-requests', requireRoleAuth(['doctor']), createWithdrawRequest);
 
 export default router;

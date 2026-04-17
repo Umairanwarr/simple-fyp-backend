@@ -5,3 +5,5 @@ export * from './favoritesController.js';
 export * from './historyController.js';
 export * from './notificationsController.js';
 export * from './reviewsController.js';
+export * from './prescriptionsController.js';
+export * from './storesController.js';

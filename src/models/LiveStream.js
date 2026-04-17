@@ -53,6 +53,10 @@ const liveStreamSchema = new mongoose.Schema(
       type: Date,
       default: null
     },
+    adminTerminationReason: {
+      type: String,
+      default: null
+    },
     invitedGuests: [
       {
         odIf: { type: mongoose.Schema.Types.ObjectId },

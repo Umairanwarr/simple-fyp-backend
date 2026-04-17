@@ -8,6 +8,7 @@ import {
 } from './shared.js';
 import { DoctorMedia } from '../../../models/DoctorMedia.js';
 import { DoctorSubscriptionNotification } from '../../../models/DoctorSubscriptionNotification.js';
+import { DoctorLivestreamNotification } from '../../../models/DoctorLivestreamNotification.js';
 import ChatMessage from '../../../models/ChatMessage.js';
 
 export const getDoctorNotifications = async (req, res) => {
@@ -20,7 +21,7 @@ export const getDoctorNotifications = async (req, res) => {
       return res.status(404).json({ message: 'Doctor not found' });
     }
 
-    const [appointments, mediaRecords, subscriptionNotifications, unreadChats] = await Promise.all([
+    const [appointments, mediaRecords, subscriptionNotifications, livestreamNotifications, unreadChats] = await Promise.all([
       Appointment.find({
         doctorId: req.user?.id,
         paymentStatus: 'succeeded',
@@ -49,6 +50,13 @@ export const getDoctorNotifications = async (req, res) => {
         doctorId: req.user?.id
       })
         .select('eventType title message createdAt')
+        .sort({ createdAt: -1 })
+        .limit(40)
+        .lean(),
+      DoctorLivestreamNotification.find({
+        doctorId: req.user?.id
+      })
+        .select('eventType streamTitle reason createdAt')
         .sort({ createdAt: -1 })
         .limit(40)
         .lean(),
@@ -87,6 +95,19 @@ export const getDoctorNotifications = async (req, res) => {
       })
       .filter(Boolean);
 
+    const livestreamEventNotifications = livestreamNotifications
+      .map((notif) => {
+        if (!notif) return null;
+        return {
+          id: String(notif._id),
+          type: 'livestream_terminated',
+          title: 'Live Stream Terminated',
+          message: `Your stream "${notif.streamTitle}" was terminated by an Admin. Reason: ${notif.reason}`,
+          createdAt: notif.createdAt
+        };
+      })
+      .filter(Boolean);
+
     const chatNotifications = unreadChats.map(chat => {
       const fromDoc = chat.from || {};
       const senderName = chat.fromModel === 'Doctor' ? fromDoc.fullName : `${fromDoc.firstName || ''} ${fromDoc.lastName || ''}`.trim();
@@ -99,7 +120,7 @@ export const getDoctorNotifications = async (req, res) => {
       };
     });
 
-    const notifications = [...appointmentNotifications, ...mediaNotifications, ...subscriptionEventNotifications, ...chatNotifications]
+    const notifications = [...appointmentNotifications, ...mediaNotifications, ...subscriptionEventNotifications, ...livestreamEventNotifications, ...chatNotifications]
       .sort((firstNotification, secondNotification) => {
         return getNotificationSortTimestamp(secondNotification) - getNotificationSortTimestamp(firstNotification);
       })

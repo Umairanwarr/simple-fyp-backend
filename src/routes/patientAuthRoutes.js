@@ -18,12 +18,16 @@ import {
   resetPatientPassword,
   registerPatient,
   searchDoctorsForPatients,
+  searchStoresForPatients,
+  getStoreProfileForPatient,
+  createStoreOrder,
   skipPatientAppointmentReview,
   submitPatientAppointmentReview,
   sendPatientVerificationOtp,
   updatePatientProfile,
   updatePatientAvatar,
-  verifyPatientOtp
+  verifyPatientOtp,
+  getPatientPrescriptions
 } from '../controllers/auth/patient/index.js';
 import { requireRoleAuth } from '../middlewares/auth/requireRoleAuth.js';
 import { handleAvatarUpload } from '../middlewares/uploadAvatar.js';
@@ -37,6 +41,9 @@ router.post('/reset-password', resetPatientPassword);
 router.post('/login', loginPatient);
 router.post('/google-login', loginPatientWithGoogle);
 router.get('/doctors', searchDoctorsForPatients);
+router.get('/stores', searchStoresForPatients);
+router.get('/stores/:storeId/profile', requireRoleAuth(['patient']), getStoreProfileForPatient);
+router.post('/stores/:storeId/orders', requireRoleAuth(['patient']), createStoreOrder);
 router.get('/profile', requireRoleAuth(['patient']), getPatientProfile);
 router.patch('/profile', requireRoleAuth(['patient']), updatePatientProfile);
 router.get('/doctors/:doctorId/profile', requireRoleAuth(['patient']), getDoctorProfileForPatient);
@@ -54,5 +61,6 @@ router.get('/favorites', requireRoleAuth(['patient']), getPatientFavoriteDoctors
 router.post('/favorites/:doctorId', requireRoleAuth(['patient']), addDoctorToPatientFavorites);
 router.delete('/favorites/:doctorId', requireRoleAuth(['patient']), removeDoctorFromPatientFavorites);
 router.patch('/avatar', requireRoleAuth(['patient']), handleAvatarUpload, updatePatientAvatar);
+router.get('/prescriptions', requireRoleAuth(['patient']), getPatientPrescriptions);
 
 export default router;
