@@ -21,6 +21,10 @@ import {
   searchStoresForPatients,
   getStoreProfileForPatient,
   createStoreOrder,
+  getPatientStoreOrders,
+  getPendingStoreReviewOrder,
+  submitStoreOrderReview,
+  skipStoreOrderReview,
   skipPatientAppointmentReview,
   submitPatientAppointmentReview,
   sendPatientVerificationOtp,
@@ -44,6 +48,10 @@ router.get('/doctors', searchDoctorsForPatients);
 router.get('/stores', searchStoresForPatients);
 router.get('/stores/:storeId/profile', requireRoleAuth(['patient']), getStoreProfileForPatient);
 router.post('/stores/:storeId/orders', requireRoleAuth(['patient']), createStoreOrder);
+router.get('/orders', requireRoleAuth(['patient']), getPatientStoreOrders);
+router.get('/store-review/pending', requireRoleAuth(['patient']), getPendingStoreReviewOrder);
+router.post('/store-review/:orderId/submit', requireRoleAuth(['patient']), submitStoreOrderReview);
+router.post('/store-review/:orderId/skip', requireRoleAuth(['patient']), skipStoreOrderReview);
 router.get('/profile', requireRoleAuth(['patient']), getPatientProfile);
 router.patch('/profile', requireRoleAuth(['patient']), updatePatientProfile);
 router.get('/doctors/:doctorId/profile', requireRoleAuth(['patient']), getDoctorProfileForPatient);

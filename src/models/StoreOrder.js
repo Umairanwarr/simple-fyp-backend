@@ -50,13 +50,29 @@ const storeOrderSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ['pending', 'reviewing', 'accepted', 'ready', 'completed', 'cancelled'],
+      enum: [
+        'pending', 'reviewing', 'accepted', 'ready', 'completed', 'cancelled',
+        // Delivery pipeline stages (set after order is accepted)
+        'Processing', 'Processed', 'Dispatched', 'Delivered'
+      ],
       default: 'pending'
     },
 
     // Internal store notes & rejection reason
     storeNote: { type: String, default: '' },
-    rejectionReason: { type: String, default: '' }
+    rejectionReason: { type: String, default: '' },
+
+    // Patient's post-delivery review of the store
+    reviewStatus: {
+      type: String,
+      enum: ['pending', 'submitted', 'skipped'],
+      default: null   // null = not yet eligible
+    },
+    reviewRating: { type: Number, default: null, min: 1, max: 5 },
+    reviewComment: { type: String, default: '', maxlength: 1000 },
+    reviewedAt: { type: Date, default: null },
+    reviewSkippedAt: { type: Date, default: null },
+    reviewSkipConfirmed: { type: Boolean, default: false }
   },
   { timestamps: true }
 );

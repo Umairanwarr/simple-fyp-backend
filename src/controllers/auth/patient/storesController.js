@@ -313,4 +313,137 @@ export const createStoreOrder = async (req, res) => {
   }
 };
 
+export const getPatientStoreOrders = async (req, res) => {
+  try {
+    const patientId = req.user?.id;
 
+    if (!patientId) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+
+    const orders = await StoreOrder.find({ patientId })
+      .populate('storeId', 'name address avatarDocument phone')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return res.status(200).json({ orders });
+  } catch (error) {
+    return res.status(500).json({ message: 'Could not fetch orders', error: error.message });
+  }
+};
+
+// ─── Get the first completed order that still needs a review ───
+export const getPendingStoreReviewOrder = async (req, res) => {
+  try {
+    const patientId = req.user?.id;
+    if (!patientId) return res.status(401).json({ message: 'Unauthorized' });
+
+    const order = await StoreOrder.findOne({
+      patientId,
+      status: 'completed',
+      reviewStatus: 'pending'
+    })
+      .populate('storeId', 'name avatarDocument')
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    return res.status(200).json({ order: order || null });
+  } catch (error) {
+    return res.status(500).json({ message: 'Could not fetch pending review', error: error.message });
+  }
+};
+
+// ─── Submit a store review from a patient after delivery ───
+export const submitStoreOrderReview = async (req, res) => {
+  try {
+    const patientId = req.user?.id;
+    const { orderId } = req.params;
+    const normalizedRating = Math.trunc(Number(req.body?.rating));
+    const normalizedComment = String(req.body?.comment || '').trim().slice(0, 1000);
+
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({ message: 'Invalid order id' });
+    }
+
+    if (!Number.isInteger(normalizedRating) || normalizedRating < 1 || normalizedRating > 5) {
+      return res.status(400).json({ message: 'Rating must be between 1 and 5' });
+    }
+
+    const order = await StoreOrder.findOne({ _id: orderId, patientId, status: 'completed' });
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+
+    if (order.reviewStatus === 'submitted') {
+      return res.status(409).json({ message: 'You already reviewed this order' });
+    }
+    if (order.reviewStatus === 'skipped') {
+      return res.status(409).json({ message: 'You skipped this review and cannot rate it now' });
+    }
+
+    const patient = await Patient.findById(patientId).select('firstName lastName').lean();
+    const patientName = `${patient?.firstName || ''} ${patient?.lastName || ''}`.trim() || order.patientName;
+    const reviewCreatedAt = new Date();
+
+    order.reviewStatus = 'submitted';
+    order.reviewRating = normalizedRating;
+    order.reviewComment = normalizedComment;
+    order.reviewedAt = reviewCreatedAt;
+    await order.save();
+
+    // Push review into MedicalStore model and recalculate avg
+    const store = await MedicalStore.findById(order.storeId);
+    if (store) {
+      store.reviews.push({
+        patientId,
+        patientName,
+        rating: normalizedRating,
+        comment: normalizedComment,
+        createdAt: reviewCreatedAt
+      });
+      const total = store.reviews.length;
+      const sum = store.reviews.reduce((acc, r) => acc + r.rating, 0);
+      store.totalReviews = total;
+      store.averageRating = total ? parseFloat((sum / total).toFixed(2)) : 0;
+      await store.save();
+    }
+
+    return res.status(200).json({ message: 'Review submitted successfully' });
+  } catch (error) {
+    return res.status(500).json({ message: 'Could not submit review', error: error.message });
+  }
+};
+
+// ─── Skip a store review ───
+export const skipStoreOrderReview = async (req, res) => {
+  try {
+    const patientId = req.user?.id;
+    const { orderId } = req.params;
+    const confirmSkip = Boolean(req.body?.confirmSkip);
+
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({ message: 'Invalid order id' });
+    }
+
+    if (!confirmSkip) {
+      return res.status(400).json({ message: 'Please confirm before skipping' });
+    }
+
+    const order = await StoreOrder.findOne({ _id: orderId, patientId, status: 'completed' });
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+
+    if (order.reviewStatus === 'submitted') {
+      return res.status(409).json({ message: 'You already reviewed this order' });
+    }
+    if (order.reviewStatus === 'skipped') {
+      return res.status(200).json({ message: 'Already skipped' });
+    }
+
+    order.reviewStatus = 'skipped';
+    order.reviewSkippedAt = new Date();
+    order.reviewSkipConfirmed = true;
+    await order.save();
+
+    return res.status(200).json({ message: 'Review skipped' });
+  } catch (error) {
+    return res.status(500).json({ message: 'Could not skip review', error: error.message });
+  }
+};

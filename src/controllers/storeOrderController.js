@@ -186,14 +186,26 @@ export const updateOrderStatus = async (req, res) => {
     const storeId = req.user.id;
     const { status, storeNote } = req.body;
 
-    const allowed = ['pending', 'reviewing', 'accepted', 'ready', 'completed', 'cancelled'];
+    const allowed = [
+      'pending', 'reviewing', 'accepted', 'ready', 'completed', 'cancelled',
+      'Processing', 'Processed', 'Dispatched', 'Delivered'
+    ];
     if (status && !allowed.includes(status)) {
       return res.status(400).json({ error: 'Invalid status value' });
     }
 
     const updates = {};
-    if (status) updates.status = status;
     if (storeNote !== undefined) updates.storeNote = storeNote;
+
+    if (status) {
+      // When store marks Delivered → auto-complete the order and open the review prompt
+      if (status === 'Delivered') {
+        updates.status = 'completed';
+        updates.reviewStatus = 'pending';
+      } else {
+        updates.status = status;
+      }
+    }
 
     const updated = await StoreOrder.findOneAndUpdate(
       { _id: req.params.id, storeId },
