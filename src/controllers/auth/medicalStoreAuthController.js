@@ -337,3 +337,43 @@ export const updateMedicalStoreAvatar = async (req, res) => {
     return res.status(500).json({ message: 'Could not update avatar', error: error.message });
   }
 };
+import { 
+  mapMedicalStoreSessionPayload 
+} from './medical-store/shared.js';
+
+export const getMedicalStoreProfile = async (req, res) => {
+  try {
+    const medicalStore = await MedicalStore.findById(req.user?.id);
+    if (!medicalStore) return res.status(404).json({ message: 'Medical store not found' });
+
+    return res.status(200).json({
+      medicalStore: mapMedicalStoreSessionPayload(medicalStore)
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Could not fetch profile', error: error.message });
+  }
+};
+
+export const updateMedicalStoreProfile = async (req, res) => {
+  try {
+    const { name, phone, address, operatingHours, bio } = req.body;
+    const medicalStore = await MedicalStore.findById(req.user?.id);
+    
+    if (!medicalStore) return res.status(404).json({ message: 'Medical store not found' });
+
+    if (name) medicalStore.name = String(name).trim();
+    if (phone) medicalStore.phone = String(phone).trim();
+    if (address) medicalStore.address = String(address).trim();
+    if (operatingHours) medicalStore.operatingHours = String(operatingHours).trim();
+    if (typeof bio === 'string') medicalStore.bio = bio.trim();
+
+    await medicalStore.save();
+
+    return res.status(200).json({
+      message: 'Profile updated successfully',
+      medicalStore: mapMedicalStoreSessionPayload(medicalStore)
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Could not update profile', error: error.message });
+  }
+};

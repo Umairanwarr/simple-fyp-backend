@@ -1,5 +1,6 @@
 import {
   Appointment,
+  ChatMessage,
   Doctor,
   Patient,
   STRIPE_CURRENCY,
@@ -302,6 +303,13 @@ export const confirmPatientAppointmentPayment = async (req, res) => {
     appointment.paidAt = new Date();
     await appointment.save();
 
+    await ChatMessage.deleteMany({
+      $or: [
+        { from: appointment.patientId, to: appointment.doctorId },
+        { from: appointment.doctorId, to: appointment.patientId }
+      ]
+    });
+
     const doctorForEmail = await Doctor.findById(appointment.doctorId)
       .select('email fullName')
       .lean();
@@ -383,7 +391,7 @@ export const getPatientAppointments = async (req, res) => {
         appointment,
         lifecycleStatus: getAppointmentLifecycleStatus(appointment, now)
       }))
-      .filter((appointmentEntry) => appointmentEntry.lifecycleStatus === 'upcoming')
+      .filter((appointmentEntry) => appointmentEntry.lifecycleStatus === 'upcoming' || appointmentEntry.lifecycleStatus === 'ongoing')
       .sort((firstEntry, secondEntry) => {
         return getAppointmentStartTimestamp(firstEntry.appointment)
           - getAppointmentStartTimestamp(secondEntry.appointment);

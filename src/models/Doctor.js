@@ -187,7 +187,7 @@ const doctorSchema = new mongoose.Schema(
         },
         consultationMode: {
           type: String,
-          enum: ['online', 'offline'],
+          enum: ['online', 'offline', 'video'],
           default: 'online'
         },
         offlineAddress: {
@@ -266,6 +266,21 @@ const doctorSchema = new mongoose.Schema(
     stripeCustomerId: {
       type: String,
       default: ''
+    },
+    bankAccount: {
+      accountTitle: { type: String, default: '' },
+      accountNumber: { type: String, default: '' },
+      bankName: { type: String, default: '' }
+    },
+    totalEarningsInRupees: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    withdrawnAmountInRupees: {
+      type: Number,
+      default: 0,
+      min: 0
     }
   },
   {

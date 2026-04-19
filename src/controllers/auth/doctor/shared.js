@@ -62,6 +62,14 @@ export const getDoctorMissingProfileFields = (doctorRecord) => {
     missingFields.push('bio');
   }
 
+  if (
+    !String(doctorRecord?.bankAccount?.accountTitle || '').trim() ||
+    !String(doctorRecord?.bankAccount?.accountNumber || '').trim() ||
+    !String(doctorRecord?.bankAccount?.bankName || '').trim()
+  ) {
+    missingFields.push('bank_account');
+  }
+
   return missingFields;
 };
 
@@ -125,7 +133,7 @@ export const mapDoctorProfilePayload = (doctorRecord) => {
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const timePattern = /^([01]\d|2[0-3]):([0-5]\d)$/;
-const allowedConsultationModes = new Set(['online', 'offline']);
+const allowedConsultationModes = new Set(['online', 'offline', 'video']);
 
 export const normalizeConsultationMode = (consultationMode) => {
   return String(consultationMode || '').trim().toLowerCase();

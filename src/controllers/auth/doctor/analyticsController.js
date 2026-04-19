@@ -3,7 +3,7 @@ import { Appointment, Doctor } from './shared.js';
 export const getDoctorAnalytics = async (req, res) => {
   try {
     const doctor = await Doctor.findById(req.user?.id)
-      .select('profileCtr')
+      .select('profileCtr totalEarningsInRupees withdrawnAmountInRupees bankAccount currentPlan')
       .lean();
 
     if (!doctor) {
@@ -14,6 +14,7 @@ export const getDoctorAnalytics = async (req, res) => {
       doctorId: req.user?.id,
       paymentStatus: 'succeeded'
     })
+      .populate('patientId', 'avatarDocument')
       .select(
         'patientId patientName amountInRupees doctorPayoutInRupees appointmentDate fromTime toTime consultationMode paidAt createdAt bookingStatus'
       )
@@ -46,10 +47,14 @@ export const getDoctorAnalytics = async (req, res) => {
       }
     }
 
+    // Keep totalEarningsInRupees in sync
+    await Doctor.findByIdAndUpdate(req.user?.id, { $set: { totalEarningsInRupees: totalRevenueInRupees } });
+
     const recentAppointments = paidAppointments.slice(0, 8).map((appointment) => {
       return {
         id: String(appointment?._id || ''),
         patientName: String(appointment?.patientName || '').trim() || 'Patient',
+        patientAvatarUrl: appointment.patientId?.avatarDocument?.url || '',
         appointmentDate: String(appointment?.appointmentDate || '').trim(),
         fromTime: String(appointment?.fromTime || '').trim(),
         toTime: String(appointment?.toTime || '').trim(),
@@ -59,6 +64,11 @@ export const getDoctorAnalytics = async (req, res) => {
       };
     });
 
+    const withdrawnAmountInRupees = Math.max(0, Number(doctor.withdrawnAmountInRupees || 0));
+    const availableBalanceInRupees = Math.max(0, totalRevenueInRupees - withdrawnAmountInRupees);
+    
+    const hasBankAccount = !!(doctor.bankAccount && doctor.bankAccount.accountNumber && doctor.bankAccount.accountTitle && doctor.bankAccount.bankName);
+
     return res.status(200).json({
       analytics: {
         profileCtr: Math.max(0, Math.trunc(Number(doctor.profileCtr || 0))),
@@ -66,6 +76,11 @@ export const getDoctorAnalytics = async (req, res) => {
         totalAppointments: paidAppointments.length,
         totalRevenueInRupees,
         monthlyRevenueInRupees,
+        withdrawnAmountInRupees,
+        availableBalanceInRupees,
+        hasBankAccount,
+        bankAccount: doctor.bankAccount || null,
+        currentPlan: doctor.currentPlan || 'platinum',
         recentAppointments
       }
     });

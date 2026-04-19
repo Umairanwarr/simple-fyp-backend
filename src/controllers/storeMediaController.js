@@ -24,11 +24,23 @@ const mapStoreMediaRecord = (record) => ({
   uploaderRole:     'medical-store'
 });
 
+const resolveStoreMediaLimits = (storePlan) => {
+  const normalizedPlan = String(storePlan || '').trim().toLowerCase();
+
+  const limitsMap = {
+    platinum: { maxImages: 2, maxVideos: 0 },
+    gold:     { maxImages: 5, maxVideos: 1 },
+    diamond:  { maxImages: 9999, maxVideos: 9999 }
+  };
+
+  return limitsMap[normalizedPlan] || limitsMap.platinum;
+};
+
 // ─── GET library ───
 export const getStoreMediaLibrary = async (req, res) => {
   try {
     const store = await MedicalStore.findById(req.user?.id)
-      .select('name email')
+      .select('name email currentPlan')
       .lean();
 
     if (!store) return res.status(404).json({ message: 'Store not found' });
@@ -44,9 +56,13 @@ export const getStoreMediaLibrary = async (req, res) => {
     const imageCount = mediaRecords.filter(m => m.mediaType === 'image' && ['pending', 'approved'].includes(m.moderationStatus)).length;
     const videoCount = mediaRecords.filter(m => m.mediaType === 'video' && ['pending', 'approved'].includes(m.moderationStatus)).length;
 
+    const limits = resolveStoreMediaLimits(store.currentPlan);
+
     return res.status(200).json({
       media: mediaRecords.map(mapStoreMediaRecord),
-      usage: { imageCount, videoCount }
+      usage: { imageCount, videoCount },
+      limits,
+      currentPlan: store.currentPlan || 'platinum'
     });
   } catch (err) {
     return res.status(500).json({ message: 'Could not fetch store media', error: err.message });
@@ -62,18 +78,33 @@ export const uploadStoreMedia = async (req, res) => {
     }
 
     const store = await MedicalStore.findById(req.user?.id)
-      .select('name email')
-      .lean();
+      .select('name email currentPlan');
 
     if (!store) return res.status(404).json({ message: 'Store not found' });
 
     const mediaType = getMediaTypeFromMime(req.file?.mimetype);
     if (!mediaType) return res.status(400).json({ message: 'Unsupported file type. Please upload an image or video.' });
 
+    // Limit check
+    const limits = resolveStoreMediaLimits(store.currentPlan);
+    const existingMedia = await DoctorMedia.find({
+      storeId: store._id,
+      uploaderRole: 'medical-store',
+      mediaType,
+      moderationStatus: { $in: ['pending', 'approved'] },
+      deletedAt: null
+    }).countDocuments();
+
+    if (mediaType === 'image' && existingMedia >= limits.maxImages) {
+      return res.status(400).json({ message: `Image limit reached for your ${store.currentPlan || 'Platinum'} plan (${limits.maxImages} max).` });
+    }
+    if (mediaType === 'video' && existingMedia >= limits.maxVideos) {
+      return res.status(400).json({ message: `Video limit reached for your ${store.currentPlan || 'Platinum'} plan (${limits.maxVideos} max).` });
+    }
+
     uploadedAsset = await uploadStoreMediaToCloudinary(req.file);
 
     const created = await DoctorMedia.create({
-      // Leave doctorId/doctorName/doctorEmail as default empty values
       storeId:      store._id,
       storeName:    String(store.name || '').trim(),
       storeEmail:   String(store.email || '').trim().toLowerCase(),

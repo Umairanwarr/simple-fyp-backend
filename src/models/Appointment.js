@@ -90,7 +90,7 @@ const appointmentSchema = new mongoose.Schema(
     },
     consultationMode: {
       type: String,
-      enum: ['online', 'offline'],
+      enum: ['online', 'offline', 'video'],
       required: true
     },
     amountInRupees: {

@@ -8,6 +8,7 @@ import { DoctorSubscriptionPayment } from '../../models/DoctorSubscriptionPaymen
 import { MedicalStore } from '../../models/MedicalStore.js';
 import { Patient } from '../../models/Patient.js';
 import { SubscriptionPricing } from '../../models/SubscriptionPricing.js';
+import WithdrawRequest from '../../models/WithdrawRequest.js';
 import { sendClinicApplicationStatusEmail } from '../../services/mailService.js';
 import { sendDoctorApplicationStatusEmail } from '../../services/mailService.js';
 import { sendMedicalStoreApplicationStatusEmail } from '../../services/mailService.js';
@@ -15,6 +16,7 @@ import { generateAuthToken } from '../../utils/token.js';
 import mongoose from 'mongoose';
 
 const DOCTOR_SUBSCRIPTION_PRICING_KEY = 'doctor-dashboard-subscriptions';
+const STORE_SUBSCRIPTION_PRICING_KEY = 'medical-store-dashboard-subscriptions';
 
 const escapeRegex = (value) => {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -120,6 +122,23 @@ const mapAdminDoctorMediaUploadNotification = (mediaRecord) => {
   };
 };
 
+const mapAdminWithdrawRequestNotification = (withdrawRequest) => {
+  const doctor = withdrawRequest.doctorId || {};
+  const doctorName = String(doctor.fullName || '').trim() || 'A doctor';
+  const amount = Math.trunc(Number(withdrawRequest.amountInRupees || 0));
+  
+  return {
+    id: `withdraw-${String(withdrawRequest._id || '')}`,
+    withdrawRequestId: String(withdrawRequest._id || ''),
+    type: 'withdraw_request_submitted',
+    title: 'New Withdraw Request',
+    message: `Dr. ${doctorName} requested a withdrawal of Rs ${amount.toLocaleString('en-PK')}.`,
+    doctorName,
+    amountInRupees: amount,
+    createdAt: withdrawRequest.createdAt || null
+  };
+};
+
 const getDoctorRatingSummaryFromReviews = (reviews = []) => {
   const safeReviews = Array.isArray(reviews) ? reviews : [];
   const totalReviews = safeReviews.length;
@@ -181,6 +200,55 @@ const mapDoctorSubscriptionPricing = (pricingRecord) => {
     ),
     updatedAt: pricingRecord?.updatedAt || null
   };
+};
+
+const getDefaultStoreSubscriptionPricing = () => {
+  return {
+    platinumPriceInRupees: 0,
+    goldPriceInRupees: 1499,
+    diamondPriceInRupees: 3999
+  };
+};
+
+const mapStoreSubscriptionPricing = (pricingRecord) => {
+  const fallbackPricing = getDefaultStoreSubscriptionPricing();
+
+  return {
+    platinumPriceInRupees: normalizePriceInRupees(
+      pricingRecord?.platinumPriceInRupees,
+      fallbackPricing.platinumPriceInRupees
+    ),
+    goldPriceInRupees: normalizePriceInRupees(
+      pricingRecord?.goldPriceInRupees,
+      fallbackPricing.goldPriceInRupees
+    ),
+    diamondPriceInRupees: normalizePriceInRupees(
+      pricingRecord?.diamondPriceInRupees,
+      fallbackPricing.diamondPriceInRupees
+    ),
+    updatedAt: pricingRecord?.updatedAt || null
+  };
+};
+
+const getOrCreateStoreSubscriptionPricing = async () => {
+  const fallbackPricing = getDefaultStoreSubscriptionPricing();
+
+  return SubscriptionPricing.findOneAndUpdate(
+    {
+      key: STORE_SUBSCRIPTION_PRICING_KEY
+    },
+    {
+      $setOnInsert: {
+        key: STORE_SUBSCRIPTION_PRICING_KEY,
+        ...fallbackPricing
+      }
+    },
+    {
+      new: true,
+      upsert: true,
+      setDefaultsOnInsert: true
+    }
+  ).lean();
 };
 
 const getOrCreateDoctorSubscriptionPricing = async () => {
@@ -334,6 +402,85 @@ export const updateDoctorSubscriptionPricingForAdmin = async (req, res) => {
   }
 };
 
+export const getStoreSubscriptionPricingForAdmin = async (req, res) => {
+  try {
+    const pricingRecord = await getOrCreateStoreSubscriptionPricing();
+
+    return res.status(200).json({
+      pricing: mapStoreSubscriptionPricing(pricingRecord)
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: 'Could not fetch store subscription pricing',
+      error: error.message
+    });
+  }
+};
+
+export const updateStoreSubscriptionPricingForAdmin = async (req, res) => {
+  try {
+    const {
+      platinumPriceInRupees,
+      goldPriceInRupees,
+      diamondPriceInRupees
+    } = req.body || {};
+
+    const inputValues = [
+      platinumPriceInRupees,
+      goldPriceInRupees,
+      diamondPriceInRupees
+    ];
+
+    const hasInvalidValue = inputValues.some((priceValue) => {
+      if (priceValue === null || priceValue === undefined || priceValue === '') {
+        return true;
+      }
+
+      const numericValue = Number(priceValue);
+
+      return !Number.isFinite(numericValue) || numericValue < 0;
+    });
+
+    if (hasInvalidValue) {
+      return res.status(400).json({
+        message: 'All price fields are required and must be non-negative numbers'
+      });
+    }
+
+    const updatedRecord = await SubscriptionPricing.findOneAndUpdate(
+      {
+        key: STORE_SUBSCRIPTION_PRICING_KEY
+      },
+      {
+        $set: {
+          platinumPriceInRupees: normalizePriceInRupees(platinumPriceInRupees, 0),
+          goldPriceInRupees: normalizePriceInRupees(goldPriceInRupees, 1499),
+          diamondPriceInRupees: normalizePriceInRupees(diamondPriceInRupees, 3999),
+          updatedByAdminId: req.user?.id || null
+        },
+        $setOnInsert: {
+          key: STORE_SUBSCRIPTION_PRICING_KEY
+        }
+      },
+      {
+        new: true,
+        upsert: true,
+        setDefaultsOnInsert: true
+      }
+    ).lean();
+
+    return res.status(200).json({
+      message: 'Store subscription pricing updated successfully',
+      pricing: mapStoreSubscriptionPricing(updatedRecord)
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: 'Could not update store subscription pricing',
+      error: error.message
+    });
+  }
+};
+
 export const getPatientsForAdmin = async (req, res) => {
   try {
     const patients = await Patient.find()
@@ -378,10 +525,13 @@ export const getAdminStats = async (req, res) => {
       approvedMedicalStores,
       totalGoldDoctors,
       totalDiamondDoctors,
+      totalGoldStores,
+      totalDiamondStores,
       appointmentMetrics,
       subscriptionMetrics,
       recentCommissions,
-      premiumUsers
+      premiumDoctors,
+      premiumStores
     ] = await Promise.all([
       Patient.countDocuments(),
       Patient.countDocuments({ isVerified: true }),
@@ -396,6 +546,14 @@ export const getAdminStats = async (req, res) => {
         currentPlan: 'gold'
       }),
       Doctor.countDocuments({
+        ...activePaidPlanFilters,
+        currentPlan: 'diamond'
+      }),
+      MedicalStore.countDocuments({
+        ...activePaidPlanFilters,
+        currentPlan: 'gold'
+      }),
+      MedicalStore.countDocuments({
         ...activePaidPlanFilters,
         currentPlan: 'diamond'
       }),
@@ -445,7 +603,12 @@ export const getAdminStats = async (req, res) => {
       Doctor.find(activePaidPlanFilters)
         .select('fullName email phone specialization currentPlan planActivatedAt planExpiresAt lastPlanPaymentAt')
         .sort({ lastPlanPaymentAt: -1, planActivatedAt: -1 })
-        .limit(120)
+        .limit(100)
+        .lean(),
+      MedicalStore.find(activePaidPlanFilters)
+        .select('name email phone currentPlan planActivatedAt planExpiresAt lastPlanPaymentAt')
+        .sort({ lastPlanPaymentAt: -1, planActivatedAt: -1 })
+        .limit(100)
         .lean()
     ]);
 
@@ -476,6 +639,8 @@ export const getAdminStats = async (req, res) => {
       approvedMedicalStores,
       totalGoldDoctors,
       totalDiamondDoctors,
+      totalGoldStores,
+      totalDiamondStores,
       totalConfirmedAppointments: Math.max(
         0,
         Math.trunc(Number(normalizedAppointmentMetrics?.totalConfirmedAppointments || 0))
@@ -487,19 +652,34 @@ export const getAdminStats = async (req, res) => {
         0,
         Math.trunc(Number(normalizedAppointmentMetrics?.totalAdminCommissionInRupees || 0))
       ),
-      premiumUsers: Array.isArray(premiumUsers)
-        ? premiumUsers.map((premiumDoctor) => ({
-            id: String(premiumDoctor?._id || ''),
-            fullName: String(premiumDoctor?.fullName || '').trim() || 'Doctor',
-            email: String(premiumDoctor?.email || '').trim() || 'N/A',
-            phone: String(premiumDoctor?.phone || '').trim() || 'N/A',
-            specialization: String(premiumDoctor?.specialization || '').trim() || 'General',
-            currentPlan: String(premiumDoctor?.currentPlan || '').trim().toLowerCase() || 'platinum',
-            planActivatedAt: premiumDoctor?.planActivatedAt || null,
-            planExpiresAt: premiumDoctor?.planExpiresAt || null,
-            purchasedAt: premiumDoctor?.lastPlanPaymentAt || premiumDoctor?.planActivatedAt || null
-          }))
-        : [],
+      premiumUsers: [
+        ...(Array.isArray(premiumDoctors)
+          ? premiumDoctors.map((doc) => ({
+              id: String(doc?._id || ''),
+              fullName: String(doc?.fullName || '').trim() || 'Doctor',
+              email: String(doc?.email || '').trim() || 'N/A',
+              phone: String(doc?.phone || '').trim() || 'N/A',
+              role: 'Doctor',
+              currentPlan: String(doc?.currentPlan || '').trim().toLowerCase() || 'platinum',
+              planActivatedAt: doc?.planActivatedAt || null,
+              planExpiresAt: doc?.planExpiresAt || null,
+              purchasedAt: doc?.lastPlanPaymentAt || doc?.planActivatedAt || null
+            }))
+          : []),
+        ...(Array.isArray(premiumStores)
+          ? premiumStores.map((store) => ({
+              id: String(store?._id || ''),
+              fullName: String(store?.name || '').trim() || 'Store',
+              email: String(store?.email || '').trim() || 'N/A',
+              phone: String(store?.phone || '').trim() || 'N/A',
+              role: 'Store',
+              currentPlan: String(store?.currentPlan || '').trim().toLowerCase() || 'platinum',
+              planActivatedAt: store?.planActivatedAt || null,
+              planExpiresAt: store?.planExpiresAt || null,
+              purchasedAt: store?.lastPlanPaymentAt || store?.planActivatedAt || null
+            }))
+          : [])
+      ].sort((a, b) => new Date(b.purchasedAt || 0) - new Date(a.purchasedAt || 0)),
       recentCommissions: Array.isArray(recentCommissions)
         ? recentCommissions.map((commissionRecord) => ({
             id: String(commissionRecord?._id || ''),
@@ -529,7 +709,7 @@ export const getAdminNotifications = async (req, res) => {
       return res.status(404).json({ message: 'Admin not found' });
     }
 
-    const [doctors, bugReports, pendingDoctorMedia] = await Promise.all([
+    const [doctors, bugReports, pendingDoctorMedia, pendingWithdraws] = await Promise.all([
       Doctor.find({
         'reviews.0': {
           $exists: true
@@ -549,6 +729,11 @@ export const getAdminNotifications = async (req, res) => {
         .select('doctorName mediaType asset.originalName createdAt')
         .sort({ createdAt: -1 })
         .limit(80)
+        .lean(),
+      WithdrawRequest.find({ status: 'pending' })
+        .populate('doctorId', 'fullName')
+        .sort({ createdAt: -1 })
+        .limit(80)
         .lean()
     ]);
 
@@ -566,8 +751,9 @@ export const getAdminNotifications = async (req, res) => {
     const mediaNotifications = pendingDoctorMedia.map((mediaRecord) => {
       return mapAdminDoctorMediaUploadNotification(mediaRecord);
     });
+    const withdrawNotifications = (pendingWithdraws || []).map((req) => mapAdminWithdrawRequestNotification(req));
 
-    const notifications = [...bugReportNotifications, ...reviewNotifications, ...mediaNotifications]
+    const notifications = [...bugReportNotifications, ...reviewNotifications, ...mediaNotifications, ...withdrawNotifications]
       .sort((firstNotification, secondNotification) => {
         return toDateTimestamp(secondNotification?.createdAt) - toDateTimestamp(firstNotification?.createdAt);
       })

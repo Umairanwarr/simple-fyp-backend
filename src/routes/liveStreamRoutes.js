@@ -112,6 +112,36 @@ router.delete('/:streamId', requireRoleAuth(['doctor']), async (req, res) => {
   }
 });
 
+// ─── Admin Terminate Stream ───
+router.patch('/:streamId/admin-terminate', requireRoleAuth(['admin']), async (req, res) => {
+  try {
+    const stream = await LiveStream.findById(req.params.streamId);
+    if (!stream) return res.status(404).json({ message: 'Stream not found' });
+
+    stream.status = 'ended';
+    stream.endedAt = new Date();
+    stream.adminTerminationReason = req.body.reason || 'Terminated by Admin';
+    await stream.save();
+
+    // Create notification for the doctor
+    try {
+      const { DoctorLivestreamNotification } = await import('../models/DoctorLivestreamNotification.js');
+      await DoctorLivestreamNotification.create({
+        doctorId: stream.doctorId,
+        streamId: stream._id,
+        streamTitle: stream.title,
+        reason: stream.adminTerminationReason
+      });
+    } catch (notifError) {
+      console.error('Failed to create admin termination notification:', notifError);
+    }
+
+    return res.json({ stream });
+  } catch (error) {
+    return res.status(500).json({ message: error.message || 'Could not terminate stream' });
+  }
+});
+
 // ─── Get Doctor's Streams ───
 router.get('/my-streams', requireRoleAuth(['doctor']), async (req, res) => {
   try {
