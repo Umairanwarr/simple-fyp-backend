@@ -733,9 +733,10 @@ export const sendPrescriptionEmail = async ({ to, patientName, doctorName }) => 
   await getTransporter().sendMail(mailOptions);
 };
 
-export const sendWithdrawApprovedEmail = async ({ to, doctorName, amountInRupees, bankName, accountNumber }) => {
+export const sendWithdrawApprovedEmail = async ({ to, doctorName, userName, userRole = 'doctor', amountInRupees, bankName, accountNumber }) => {
   ensureSmtpCredentials();
-  const safeName = String(doctorName || 'Doctor').trim();
+  const safeName = String(userName || doctorName || 'User').trim();
+  const prefix = userRole === 'doctor' ? 'Dr. ' : '';
   const amountText = `Rs ${Math.trunc(Number(amountInRupees || 0)).toLocaleString('en-PK')}`;
   const mailOptions = {
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
@@ -744,7 +745,7 @@ export const sendWithdrawApprovedEmail = async ({ to, doctorName, amountInRupees
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; color: #1f2937;">
         <h2 style="color: #15803d; margin-bottom: 8px;">Withdrawal Approved ✓</h2>
-        <p>Hi Dr. ${safeName},</p>
+        <p>Hi ${prefix}${safeName},</p>
         <p>Your withdrawal request of <strong>${amountText}</strong> has been <strong style="color:#15803d;">approved</strong>.</p>
         <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px 16px;margin:16px 0;">
           <p style="margin:0 0 6px;"><strong>Amount:</strong> ${amountText}</p>
@@ -759,9 +760,10 @@ export const sendWithdrawApprovedEmail = async ({ to, doctorName, amountInRupees
   await getTransporter().sendMail(mailOptions);
 };
 
-export const sendWithdrawRejectedEmail = async ({ to, doctorName, amountInRupees, rejectionReason }) => {
+export const sendWithdrawRejectedEmail = async ({ to, doctorName, userName, userRole = 'doctor', amountInRupees, rejectionReason }) => {
   ensureSmtpCredentials();
-  const safeName = String(doctorName || 'Doctor').trim();
+  const safeName = String(userName || doctorName || 'User').trim();
+  const prefix = userRole === 'doctor' ? 'Dr. ' : '';
   const amountText = `Rs ${Math.trunc(Number(amountInRupees || 0)).toLocaleString('en-PK')}`;
   const mailOptions = {
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
@@ -770,7 +772,7 @@ export const sendWithdrawRejectedEmail = async ({ to, doctorName, amountInRupees
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; color: #1f2937;">
         <h2 style="color: #b91c1c; margin-bottom: 8px;">Withdrawal Not Approved</h2>
-        <p>Hi Dr. ${safeName},</p>
+        <p>Hi ${prefix}${safeName},</p>
         <p>Your withdrawal request of <strong>${amountText}</strong> has been <strong style="color:#b91c1c;">rejected</strong>.</p>
         ${rejectionReason ? `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:14px 16px;margin:16px 0;"><p style="margin:0;"><strong>Reason:</strong> ${rejectionReason}</p></div>` : ''}
         <p>Your balance has <strong>not</strong> been deducted. Please contact support if you have questions.</p>

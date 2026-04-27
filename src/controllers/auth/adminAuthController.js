@@ -9,6 +9,7 @@ import { MedicalStore } from '../../models/MedicalStore.js';
 import { Patient } from '../../models/Patient.js';
 import { SubscriptionPricing } from '../../models/SubscriptionPricing.js';
 import WithdrawRequest from '../../models/WithdrawRequest.js';
+import { StoreOrder } from '../../models/StoreOrder.js';
 import { sendClinicApplicationStatusEmail } from '../../services/mailService.js';
 import { sendDoctorApplicationStatusEmail } from '../../services/mailService.js';
 import { sendMedicalStoreApplicationStatusEmail } from '../../services/mailService.js';
@@ -123,8 +124,9 @@ const mapAdminDoctorMediaUploadNotification = (mediaRecord) => {
 };
 
 const mapAdminWithdrawRequestNotification = (withdrawRequest) => {
-  const doctor = withdrawRequest.doctorId || {};
-  const doctorName = String(doctor.fullName || '').trim() || 'A doctor';
+  const doctor = withdrawRequest.doctorId;
+  const store = withdrawRequest.storeId;
+  const requesterName = doctor ? `Dr. ${String(doctor.fullName || '').trim() || 'A doctor'}` : (store ? `Store: ${String(store.name || '').trim() || 'A store'}` : 'A user');
   const amount = Math.trunc(Number(withdrawRequest.amountInRupees || 0));
   
   return {
@@ -132,8 +134,8 @@ const mapAdminWithdrawRequestNotification = (withdrawRequest) => {
     withdrawRequestId: String(withdrawRequest._id || ''),
     type: 'withdraw_request_submitted',
     title: 'New Withdraw Request',
-    message: `Dr. ${doctorName} requested a withdrawal of Rs ${amount.toLocaleString('en-PK')}.`,
-    doctorName,
+    message: `${requesterName} requested a withdrawal of Rs ${amount.toLocaleString('en-PK')}.`,
+    requesterName,
     amountInRupees: amount,
     createdAt: withdrawRequest.createdAt || null
   };
@@ -732,6 +734,7 @@ export const getAdminNotifications = async (req, res) => {
         .lean(),
       WithdrawRequest.find({ status: 'pending' })
         .populate('doctorId', 'fullName')
+        .populate('storeId', 'name')
         .sort({ createdAt: -1 })
         .limit(80)
         .lean()
@@ -833,6 +836,86 @@ export const getDoctorReviewsForAdmin = async (req, res) => {
     return res.status(200).json({ reviews });
   } catch (error) {
     return res.status(500).json({ message: 'Could not fetch doctor reviews', error: error.message });
+  }
+};
+
+export const getStoreReviewsForAdmin = async (req, res) => {
+  try {
+    const storeNameQuery = String(req.query?.storeName || '').trim();
+    const storeFilters = {
+      'reviews.0': {
+        $exists: true
+      }
+    };
+
+    if (storeNameQuery) {
+      storeFilters.name = {
+        $regex: escapeRegex(storeNameQuery),
+        $options: 'i'
+      };
+    }
+
+    const stores = await MedicalStore.find(storeFilters)
+      .select('name averageRating totalReviews reviews')
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    const reviews = stores
+      .flatMap((store) => {
+        const storeReviews = Array.isArray(store?.reviews) ? store.reviews : [];
+
+        return storeReviews.map((review) => ({
+          id: String(review?._id || ''),
+          storeId: String(store?._id || ''),
+          storeName: String(store?.name || '').trim() || 'Store',
+          patientName: String(review?.patientName || '').trim() || 'Patient',
+          rating: Math.max(1, Math.min(5, Math.trunc(Number(review?.rating || 0)) || 0)),
+          comment: String(review?.comment || '').trim(),
+          createdAt: review?.createdAt || null
+        }));
+      })
+      .sort((a, b) => {
+        const firstTimestamp = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const secondTimestamp = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return secondTimestamp - firstTimestamp;
+      });
+
+    return res.status(200).json({ reviews });
+  } catch (error) {
+    return res.status(500).json({ message: 'Could not fetch store reviews', error: error.message });
+  }
+};
+
+export const deleteStoreReviewForAdmin = async (req, res) => {
+  try {
+    const { reviewId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(reviewId)) {
+      return res.status(400).json({ message: 'Invalid review id' });
+    }
+
+    const store = await MedicalStore.findOne({
+      'reviews._id': reviewId
+    });
+
+    if (!store) {
+      return res.status(404).json({ message: 'Review not found' });
+    }
+
+    // Keep only reviews that don't match the reviewId
+    store.reviews = store.reviews.filter(r => String(r._id) !== String(reviewId));
+    
+    // Recalculate averages
+    const totalReviews = store.reviews.length;
+    const sum = store.reviews.reduce((acc, r) => acc + r.rating, 0);
+    store.totalReviews = totalReviews;
+    store.averageRating = totalReviews > 0 ? parseFloat((sum / totalReviews).toFixed(2)) : 0;
+
+    await store.save();
+
+    return res.status(200).json({ message: 'Store review deleted successfully' });
+  } catch (error) {
+    return res.status(500).json({ message: 'Could not delete store review', error: error.message });
   }
 };
 

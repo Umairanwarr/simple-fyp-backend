@@ -145,7 +145,7 @@ export const createStoreOrder = async (req, res) => {
     }
 
     const patient = await Patient.findById(patientId)
-      .select('firstName lastName email phone avatarUrl profileImage image')
+      .select('firstName lastName email phone avatarDocument')
       .lean();
 
     if (!patient) {
@@ -223,7 +223,7 @@ export const createStoreOrder = async (req, res) => {
     const patientName = `${String(patient.firstName || '').trim()} ${String(patient.lastName || '').trim()}`.trim() || 'Patient';
     const patientPhone = String(patient.phone || '').trim();
     const patientEmail = String(patient.email || '').trim();
-    const patientImage = String(patient.avatarUrl || patient.profileImage || patient.image || '').trim();
+    const patientImage = String(patient.avatarDocument?.url || '').trim();
 
     // For Stripe, create a payment intent
     let stripePaymentIntentId = null;

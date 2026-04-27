@@ -1,11 +1,13 @@
 import WithdrawRequest from '../../../models/WithdrawRequest.js';
 import { Doctor } from '../../auth/doctor/shared.js';
+import { MedicalStore } from '../../../models/MedicalStore.js';
 import { sendWithdrawApprovedEmail, sendWithdrawRejectedEmail } from '../../../services/mailService.js';
 
 export const getAdminWithdrawRequests = async (req, res) => {
   try {
     const requests = await WithdrawRequest.find()
       .populate('doctorId', 'fullName email avatarDocument totalEarningsInRupees withdrawnAmountInRupees')
+      .populate('storeId', 'name email avatarDocument totalEarningsInRupees withdrawnAmountInRupees')
       .sort({ createdAt: -1 })
       .lean();
 
@@ -31,25 +33,37 @@ export const reviewWithdrawRequest = async (req, res) => {
       return res.status(400).json({ message: 'Request has already been reviewed' });
     }
 
-    const doctor = await Doctor.findById(withdrawRequest.doctorId)
-      .select('fullName email totalEarningsInRupees withdrawnAmountInRupees');
-    if (!doctor) return res.status(404).json({ message: 'Doctor not found' });
+    let user = null;
+    let userName = '';
+    let userRole = 'doctor';
+
+    if (withdrawRequest.doctorId) {
+      user = await Doctor.findById(withdrawRequest.doctorId).select('fullName email totalEarningsInRupees withdrawnAmountInRupees');
+      if (user) userName = user.fullName;
+    } else if (withdrawRequest.storeId) {
+      user = await MedicalStore.findById(withdrawRequest.storeId).select('name email totalEarningsInRupees withdrawnAmountInRupees');
+      if (user) {
+        userName = user.name;
+        userRole = 'store';
+      }
+    }
+
+    if (!user) return res.status(404).json({ message: 'User not found for this withdraw request' });
 
     if (action === 'approve') {
       withdrawRequest.status = 'approved';
       withdrawRequest.reviewedAt = new Date();
 
-      // Deduct from doctor's earnings
-      doctor.withdrawnAmountInRupees = Math.min(
-        doctor.totalEarningsInRupees,
-        (doctor.withdrawnAmountInRupees || 0) + withdrawRequest.amountInRupees
+      user.withdrawnAmountInRupees = Math.min(
+        user.totalEarningsInRupees,
+        (user.withdrawnAmountInRupees || 0) + withdrawRequest.amountInRupees
       );
-      await doctor.save();
+      await user.save();
 
-      // Send approval email async
       sendWithdrawApprovedEmail({
-        to: doctor.email,
-        doctorName: doctor.fullName,
+        to: user.email,
+        userName,
+        userRole,
         amountInRupees: withdrawRequest.amountInRupees,
         bankName: withdrawRequest.bankName,
         accountNumber: withdrawRequest.bankAccountNumber
@@ -61,8 +75,9 @@ export const reviewWithdrawRequest = async (req, res) => {
       withdrawRequest.rejectionReason = rejectionReason;
 
       sendWithdrawRejectedEmail({
-        to: doctor.email,
-        doctorName: doctor.fullName,
+        to: user.email,
+        userName,
+        userRole,
         amountInRupees: withdrawRequest.amountInRupees,
         rejectionReason
       }).catch(err => console.error('Withdraw rejection email error:', err));

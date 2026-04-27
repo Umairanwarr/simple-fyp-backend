@@ -215,6 +215,21 @@ const medicalStoreSchema = new mongoose.Schema(
     totalReviews: {
       type: Number,
       default: 0
+    },
+    bankAccount: {
+      accountTitle: { type: String, default: '' },
+      accountNumber: { type: String, default: '' },
+      bankName: { type: String, default: '' }
+    },
+    totalEarningsInRupees: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    withdrawnAmountInRupees: {
+      type: Number,
+      default: 0,
+      min: 0
     }
   },
   {

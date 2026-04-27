@@ -5,7 +5,12 @@ const withdrawRequestSchema = new mongoose.Schema(
     doctorId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Doctor',
-      required: true
+      required: false
+    },
+    storeId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'MedicalStore',
+      required: false
     },
     amountInRupees: {
       type: Number,

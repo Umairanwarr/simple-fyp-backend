@@ -1,11 +1,25 @@
 import express from 'express';
 import mongoose from 'mongoose';
+import multer from 'multer';
 import ChatMessage from '../models/ChatMessage.js';
 import { requireRoleAuth } from '../middlewares/auth/requireRoleAuth.js';
 import { Doctor } from '../models/Doctor.js';
 import { Patient } from '../models/Patient.js';
 import { Appointment } from '../models/Appointment.js';
 import { sendNewChatMessageEmail } from '../services/mailService.js';
+import { uploadChatMediaToCloudinary } from '../services/cloudinaryService.js';
+
+// Multer for chat media (images + videos, max 25MB)
+const chatMediaStorage = multer.memoryStorage();
+const chatMediaUpload = multer({
+  storage: chatMediaStorage,
+  limits: { fileSize: 25 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const mime = String(file?.mimetype || '').toLowerCase();
+    const allowed = mime.startsWith('image/') || mime.startsWith('video/');
+    allowed ? cb(null, true) : cb(new Error('Only images and videos are allowed'));
+  }
+}).single('media');
 
 const parseAppointmentDateTimeChat = (date, time) => {
   const parsedDate = new Date(`${date}T${time}:00`);
@@ -254,6 +268,27 @@ router.post('/messages', requireRoleAuth(), async (req, res) => {
     return res.status(201).json({ message });
   } catch (error) {
     return res.status(500).json({ message: error.message || 'Could not send message' });
+  }
+});
+
+// Upload media for chat (shared by doctor-patient and store chats)
+router.post('/upload-media', requireRoleAuth(), (req, res, next) => {
+  chatMediaUpload(req, res, (err) => {
+    if (err) return res.status(400).json({ message: err.message || 'Upload failed' });
+    next();
+  });
+}, async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+    const result = await uploadChatMediaToCloudinary(req.file);
+    const mime = String(req.file.mimetype || '').toLowerCase();
+    return res.json({
+      url: result.url,
+      type: mime.startsWith('video/') ? 'video' : 'image',
+      originalName: result.originalName
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message || 'Could not upload media' });
   }
 });
 

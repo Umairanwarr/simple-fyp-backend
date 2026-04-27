@@ -75,6 +75,13 @@ export const uploadPrescriptionToCloudinary = async (file) => {
   });
 };
 
+export const uploadChatMediaToCloudinary = async (file) => {
+  return uploadDocumentToCloudinary(file, {
+    folder: 'fyp/chat/media',
+    fallbackBaseName: 'chat_media'
+  });
+};
+
 const uploadDocumentToCloudinary = async (file, { folder, fallbackBaseName }) => {
   ensureCloudinaryConfigured();
 
