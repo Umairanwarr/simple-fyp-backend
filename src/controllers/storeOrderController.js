@@ -194,6 +194,9 @@ export const updateOrderStatus = async (req, res) => {
       return res.status(400).json({ error: 'Invalid status value' });
     }
 
+    const order = await StoreOrder.findOne({ _id: req.params.id, storeId });
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+
     const updates = {};
     if (storeNote !== undefined) updates.storeNote = storeNote;
 
@@ -202,13 +205,20 @@ export const updateOrderStatus = async (req, res) => {
       if (status === 'Delivered') {
         updates.status = 'completed';
         updates.reviewStatus = 'pending';
+        
+        // Only increment earnings if the order wasn't already completed
+        if (order.status !== 'completed' && order.status !== 'Delivered') {
+          await MedicalStore.findByIdAndUpdate(storeId, {
+            $inc: { totalEarningsInRupees: order.totalAmount || 0 }
+          });
+        }
       } else {
         updates.status = status;
       }
     }
 
-    const updated = await StoreOrder.findOneAndUpdate(
-      { _id: req.params.id, storeId },
+    const updated = await StoreOrder.findByIdAndUpdate(
+      req.params.id,
       { $set: updates },
       { new: true }
     );

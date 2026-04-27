@@ -9,6 +9,8 @@ import {
   deleteMedicalStoreForAdmin,
   deletePatientForAdmin,
   getDoctorReviewsForAdmin,
+  getStoreReviewsForAdmin,
+  deleteStoreReviewForAdmin,
   getClinicsForAdmin,
   getDoctorsForAdmin,
   getMedicalStoresForAdmin,
@@ -51,6 +53,8 @@ router.get('/notifications', requireAdminAuth, getAdminNotifications);
 router.patch('/notifications/read', requireAdminAuth, markAdminNotificationsAsRead);
 router.get('/reviews', requireAdminAuth, getDoctorReviewsForAdmin);
 router.delete('/reviews/:reviewId', requireAdminAuth, deleteDoctorReviewForAdmin);
+router.get('/reviews/store', requireAdminAuth, getStoreReviewsForAdmin);
+router.delete('/reviews/store/:reviewId', requireAdminAuth, deleteStoreReviewForAdmin);
 router.get('/subscription-pricing/doctor', requireAdminAuth, getDoctorSubscriptionPricingForAdmin);
 router.patch('/subscription-pricing/doctor', requireAdminAuth, updateDoctorSubscriptionPricingForAdmin);
 router.get('/subscription-pricing/medical-store', requireAdminAuth, getStoreSubscriptionPricingForAdmin);

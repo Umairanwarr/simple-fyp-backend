@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { connectDB } from './config/db.js';
 import authRoutes from './routes/auth.js';
 import chatRoutes from './routes/chatRoutes.js';
+import storeChatRoutes from './routes/storeChatRoutes.js';
 import agoraRoutes from './routes/agoraRoutes.js';
 import liveStreamRoutes from './routes/liveStreamRoutes.js';
 import medicineRoutes from './routes/medicineRoutes.js';
@@ -16,8 +17,10 @@ import http from 'http';
 import jwt from 'jsonwebtoken';
 import { Server as IOServer } from 'socket.io';
 import ChatMessage from './models/ChatMessage.js';
+import StoreChatMessage from './models/StoreChatMessage.js';
 import { Doctor } from './models/Doctor.js';
 import { Patient } from './models/Patient.js';
+import { MedicalStore } from './models/MedicalStore.js';
 import { sendNewChatMessageEmail } from './services/mailService.js';
 import { hasActiveChatSession } from './routes/chatRoutes.js';
 
@@ -51,6 +54,7 @@ app.get('/api/health', (req, res) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/store-chat', storeChatRoutes);
 app.use('/api/agora', agoraRoutes);
 app.use('/api/livestream', liveStreamRoutes);
 app.use('/api/medicines', medicineRoutes);
@@ -144,13 +148,11 @@ const startServer = async () => {
             createdAt: message.createdAt
           };
 
-          // emit to both sender and receiver rooms
           io.to(`user:${to}`).emit('chat:message', out);
           io.to(`user:${fromId}`).emit('chat:message', out);
 
           if (typeof ack === 'function') ack({ ok: true, message: out });
 
-          // Send email notification offline (fire and forget)
           try {
             const SenderModel = fromModel === 'Doctor' ? Doctor : Patient;
             const RecipientModel = toModel === 'Doctor' ? Doctor : Patient;
@@ -173,6 +175,94 @@ const startServer = async () => {
             }
           } catch (emailErr) {
             console.error('Failed to send chat email notification:', emailErr);
+          }
+        } catch (err) {
+          if (typeof ack === 'function') ack({ ok: false, message: err.message });
+        }
+      });
+
+      // ─── Store-Patient Chat Socket ───
+      socket.on('store-chat:send', async (payload, ack) => {
+        try {
+          const fromId = String(socket.user.id || '').trim();
+          const role = String(socket.user.role || '').trim();
+          const to = String(payload?.to || '').trim();
+          const content = String(payload?.content || '').trim();
+          const attachment = payload?.attachment || null;
+
+          if (!fromId || !to || (!content && !attachment)) {
+            if (typeof ack === 'function') ack({ ok: false, message: 'Invalid payload' });
+            return;
+          }
+
+          const STORE_ROLE_TO_MODEL = { patient: 'Patient', 'medical-store': 'MedicalStore' };
+          const fromModel = STORE_ROLE_TO_MODEL[role] || 'Patient';
+
+          // Stores cannot initiate — only reply
+          if (fromModel === 'MedicalStore') {
+            const mongoose2 = (await import('mongoose')).default;
+            const existingThread = await StoreChatMessage.findOne({
+              $or: [
+                { from: new mongoose2.Types.ObjectId(to), to: new mongoose2.Types.ObjectId(fromId) },
+                { from: new mongoose2.Types.ObjectId(fromId), to: new mongoose2.Types.ObjectId(to) }
+              ]
+            });
+            if (!existingThread) {
+              if (typeof ack === 'function') ack({ ok: false, message: 'Stores cannot initiate chats.' });
+              return;
+            }
+          }
+
+          const toModel = fromModel === 'MedicalStore' ? 'Patient' : 'MedicalStore';
+
+          const message = await StoreChatMessage.create({
+            from: fromId,
+            to,
+            fromModel,
+            toModel,
+            content,
+            attachment: attachment || {}
+          });
+
+          const out = {
+            id: message._id,
+            from: message.from,
+            to: message.to,
+            fromModel: message.fromModel,
+            toModel: message.toModel,
+            content: message.content,
+            attachment: message.attachment,
+            createdAt: message.createdAt
+          };
+
+          io.to(`user:${to}`).emit('store-chat:message', out);
+          io.to(`user:${fromId}`).emit('store-chat:message', out);
+
+          if (typeof ack === 'function') ack({ ok: true, message: out });
+
+          // Email notification
+          try {
+            const SenderModel = fromModel === 'MedicalStore' ? MedicalStore : Patient;
+            const RecipientModel = toModel === 'MedicalStore' ? MedicalStore : Patient;
+
+            const [senderDoc, recipientDoc] = await Promise.all([
+              SenderModel.findById(fromId).select(fromModel === 'MedicalStore' ? 'name' : 'firstName lastName').lean(),
+              RecipientModel.findById(to).select(toModel === 'MedicalStore' ? 'email name' : 'email firstName lastName').lean()
+            ]);
+
+            if (senderDoc && recipientDoc && recipientDoc.email) {
+              const senderName = fromModel === 'MedicalStore' ? senderDoc.name : `${senderDoc.firstName} ${senderDoc.lastName}`;
+              const recipientName = toModel === 'MedicalStore' ? recipientDoc.name : `${recipientDoc.firstName} ${recipientDoc.lastName}`;
+              sendNewChatMessageEmail({
+                to: recipientDoc.email,
+                recipientName,
+                senderName,
+                senderRole: fromModel === 'MedicalStore' ? 'medical store' : 'patient',
+                messagePreview: content.length > 50 ? content.substring(0, 47) + '...' : content
+              }).catch(e => console.error('Store chat email error:', e));
+            }
+          } catch (emailErr) {
+            console.error('Store chat email error:', emailErr);
           }
         } catch (err) {
           if (typeof ack === 'function') ack({ ok: false, message: err.message });

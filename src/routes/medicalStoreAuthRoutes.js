@@ -25,6 +25,13 @@ import {
   getStoreSubscriptionStatus
 } from '../controllers/auth/medical-store/subscriptionController.js';
 
+import {
+  saveStoreBankAccount,
+  getStoreBankAccount,
+  createStoreWithdrawRequest,
+  getStoreWithdrawRequests
+} from '../controllers/auth/medical-store/withdrawController.js';
+
 const router = express.Router();
 
 router.post('/register', handleMedicalStoreLicenseUpload, registerMedicalStore);
@@ -45,5 +52,16 @@ router.get('/subscription-status', requireRoleAuth(['medical-store']), getStoreS
 router.post('/create-subscription-checkout', requireRoleAuth(['medical-store']), createStoreSubscriptionCheckoutSession);
 router.post('/confirm-subscription-checkout', requireRoleAuth(['medical-store']), confirmStoreSubscriptionCheckoutSession);
 router.post('/cancel-subscription', requireRoleAuth(['medical-store']), cancelStoreSubscription);
+
+import { getStoreReviews } from '../controllers/auth/medical-store/reviewsController.js';
+
+// ─── Withdrawal & Bank Account Routes ───
+router.get('/bank-account', requireRoleAuth(['medical-store']), getStoreBankAccount);
+router.put('/bank-account', requireRoleAuth(['medical-store']), saveStoreBankAccount);
+router.get('/withdraw-requests', requireRoleAuth(['medical-store']), getStoreWithdrawRequests);
+router.post('/withdraw-requests', requireRoleAuth(['medical-store']), createStoreWithdrawRequest);
+
+// ─── Reviews Route ───
+router.get('/reviews', requireRoleAuth(['medical-store']), getStoreReviews);
 
 export default router;
