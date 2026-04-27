@@ -44,6 +44,9 @@ const mapDoctorMediaModerationRecord = (mediaRecord) => {
     // Store fields
     storeName: String(mediaRecord?.storeName || '').trim() || '',
     storeEmail: String(mediaRecord?.storeEmail || '').trim() || '',
+    // Clinic fields
+    clinicName: String(mediaRecord?.clinicName || '').trim() || '',
+    clinicEmail: String(mediaRecord?.clinicEmail || '').trim() || '',
     // Shared
     mediaType: String(mediaRecord?.mediaType || '').trim().toLowerCase() === 'video' ? 'video' : 'image',
     url: String(mediaRecord?.asset?.url || '').trim(),
@@ -69,6 +72,10 @@ const buildMatchStage = ({ status, query }) => {
     matchStage.$or = [
       { doctorName: safeRegex },
       { doctorEmail: safeRegex },
+      { storeName: safeRegex },
+      { storeEmail: safeRegex },
+      { clinicName: safeRegex },
+      { clinicEmail: safeRegex },
       { 'asset.originalName': safeRegex }
     ];
   }

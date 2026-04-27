@@ -20,10 +20,10 @@ const doctorMediaSchema = new mongoose.Schema(
       trim: true,
       lowercase: true
     },
-    // Uploader identity — 'doctor' (default) or 'medical-store'
+    // Uploader identity — 'doctor' (default), 'medical-store', or 'clinic'
     uploaderRole: {
       type: String,
-      enum: ['doctor', 'medical-store'],
+      enum: ['doctor', 'medical-store', 'clinic'],
       default: 'doctor',
       index: true
     },
@@ -36,6 +36,15 @@ const doctorMediaSchema = new mongoose.Schema(
     },
     storeName:  { type: String, default: '', trim: true },
     storeEmail: { type: String, default: '', trim: true, lowercase: true },
+    // Clinic specific fields (populated when uploaderRole === 'clinic')
+    clinicId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Clinic',
+      default: null,
+      index: true
+    },
+    clinicName:  { type: String, default: '', trim: true },
+    clinicEmail: { type: String, default: '', trim: true, lowercase: true },
     mediaType: {
       type: String,
       enum: ['image', 'video'],

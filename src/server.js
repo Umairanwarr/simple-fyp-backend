@@ -12,6 +12,7 @@ import liveStreamRoutes from './routes/liveStreamRoutes.js';
 import medicineRoutes from './routes/medicineRoutes.js';
 import storeOrderRoutes from './routes/storeOrderRoutes.js';
 import storeMediaRoutes from './routes/storeMediaRoutes.js';
+import clinicMediaRoutes from './routes/clinicMediaRoutes.js';
 import { LiveStream } from './models/LiveStream.js';
 import http from 'http';
 import jwt from 'jsonwebtoken';
@@ -60,6 +61,7 @@ app.use('/api/livestream', liveStreamRoutes);
 app.use('/api/medicines', medicineRoutes);
 app.use('/api/store-orders', storeOrderRoutes);
 app.use('/api/store-media', storeMediaRoutes);
+app.use('/api/clinic-media', clinicMediaRoutes);
 
 const startServer = async () => {
   await connectDB();
