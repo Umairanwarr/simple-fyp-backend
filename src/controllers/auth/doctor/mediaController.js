@@ -268,6 +268,7 @@ export const uploadDoctorMedia = async (req, res) => {
       doctorId: doctor._id,
       doctorName: String(doctor.fullName || '').trim() || 'Doctor',
       doctorEmail: String(doctor.email || '').trim().toLowerCase(),
+      uploaderRole: 'doctor',
       mediaType,
       asset: uploadedAsset,
       moderationStatus: 'pending'

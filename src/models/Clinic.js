@@ -127,6 +127,25 @@ const clinicSchema = new mongoose.Schema(
         type: Number,
         default: null
       }
+    },
+    bankAccount: {
+      accountTitle: { type: String, default: '' },
+      accountNumber: { type: String, default: '' },
+      bankName: { type: String, default: '' }
+    },
+    totalEarningsInRupees: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    withdrawnAmountInRupees: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    notificationsSeenAt: {
+      type: Date,
+      default: null
     }
   },
   {
