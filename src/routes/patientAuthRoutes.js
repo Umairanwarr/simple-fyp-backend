@@ -38,6 +38,8 @@ import { handleAvatarUpload } from '../middlewares/uploadAvatar.js';
 
 const router = express.Router();
 
+import { searchClinicsForPatients, getClinicDoctorsForPatient, bookClinicDoctorAppointment } from '../controllers/auth/patient/clinicsController.js';
+
 router.post('/register', registerPatient);
 router.post('/send-otp', sendPatientVerificationOtp);
 router.post('/verify-otp', verifyPatientOtp);
@@ -46,6 +48,9 @@ router.post('/login', loginPatient);
 router.post('/google-login', loginPatientWithGoogle);
 router.get('/doctors', searchDoctorsForPatients);
 router.get('/stores', searchStoresForPatients);
+router.get('/clinics', searchClinicsForPatients);
+router.get('/clinics/:clinicId/doctors', getClinicDoctorsForPatient);
+router.post('/clinics/book', requireRoleAuth(['patient']), bookClinicDoctorAppointment);
 router.get('/stores/:storeId/profile', requireRoleAuth(['patient']), getStoreProfileForPatient);
 router.post('/stores/:storeId/orders', requireRoleAuth(['patient']), createStoreOrder);
 router.get('/orders', requireRoleAuth(['patient']), getPatientStoreOrders);
