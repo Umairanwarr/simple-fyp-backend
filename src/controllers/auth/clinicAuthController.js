@@ -297,6 +297,70 @@ export const loginClinic = async (req, res) => {
   }
 };
 
+export const getClinicProfile = async (req, res) => {
+  try {
+    const clinic = await Clinic.findById(req.user?.id).select('-password -verificationOtpHash -verificationOtpExpiresAt -loginOtpHash -loginOtpExpiresAt');
+
+    if (!clinic) {
+      return res.status(404).json({ message: 'Clinic not found' });
+    }
+
+    return res.status(200).json({
+      clinic: {
+        id: clinic._id,
+        name: clinic.name,
+        email: clinic.email,
+        phone: clinic.phone,
+        facilityType: clinic.facilityType,
+        address: clinic.address,
+        applicationStatus: clinic.applicationStatus,
+        role: clinic.role,
+        avatarUrl: getClinicAvatarUrl(clinic),
+        permitDocument: clinic.permitDocument || null,
+        createdAt: clinic.createdAt
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Could not fetch clinic profile', error: error.message });
+  }
+};
+
+export const updateClinicProfile = async (req, res) => {
+  try {
+    const { name, phone, address, facilityType } = req.body;
+
+    const clinic = await Clinic.findById(req.user?.id);
+
+    if (!clinic) {
+      return res.status(404).json({ message: 'Clinic not found' });
+    }
+
+    if (name) clinic.name = String(name).trim();
+    if (phone) clinic.phone = String(phone).trim();
+    if (address) clinic.address = String(address).trim();
+    if (facilityType) clinic.facilityType = String(facilityType).trim();
+
+    await clinic.save();
+
+    return res.status(200).json({
+      message: 'Profile updated successfully',
+      clinic: {
+        id: clinic._id,
+        name: clinic.name,
+        email: clinic.email,
+        phone: clinic.phone,
+        facilityType: clinic.facilityType,
+        address: clinic.address,
+        applicationStatus: clinic.applicationStatus,
+        role: clinic.role,
+        avatarUrl: getClinicAvatarUrl(clinic)
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Could not update clinic profile', error: error.message });
+  }
+};
+
 export const updateClinicAvatar = async (req, res) => {
   try {
     if (!req.file) {

@@ -105,7 +105,21 @@ const mapAdminBugReportNotification = (bugReportRecord) => {
 };
 
 const mapAdminDoctorMediaUploadNotification = (mediaRecord) => {
-  const doctorName = String(mediaRecord?.doctorName || '').trim() || 'Doctor';
+  const role = String(mediaRecord?.uploaderRole || 'doctor').toLowerCase();
+  let uploaderName = 'User';
+  let roleLabel = 'Doctor';
+
+  if (role === 'clinic') {
+    uploaderName = String(mediaRecord?.clinicName || '').trim() || 'Clinic';
+    roleLabel = 'Clinic';
+  } else if (role === 'medical-store') {
+    uploaderName = String(mediaRecord?.storeName || '').trim() || 'Medical Store';
+    roleLabel = 'Medical Store';
+  } else {
+    uploaderName = String(mediaRecord?.doctorName || '').trim() || 'Doctor';
+    roleLabel = 'Doctor';
+  }
+
   const mediaType = String(mediaRecord?.mediaType || '').trim().toLowerCase() === 'video'
     ? 'video'
     : 'image';
@@ -114,10 +128,11 @@ const mapAdminDoctorMediaUploadNotification = (mediaRecord) => {
   return {
     id: `media-${String(mediaRecord?._id || '')}`,
     mediaId: String(mediaRecord?._id || ''),
-    type: 'doctor_media_uploaded',
-    title: 'New Doctor Media Upload',
-    message: `${doctorName} uploaded a ${mediaType} (${mediaFileName}) for moderation.`,
-    doctorName,
+    type: 'doctor_media_uploaded', // Keep this type for frontend compatibility
+    title: `New ${roleLabel} Media Upload`,
+    message: `${uploaderName} uploaded a ${mediaType} (${mediaFileName}) for moderation.`,
+    uploaderName,
+    role,
     mediaType,
     createdAt: mediaRecord?.createdAt || null
   };
@@ -728,7 +743,7 @@ export const getAdminNotifications = async (req, res) => {
         deletedAt: null,
         moderationStatus: 'pending'
       })
-        .select('doctorName mediaType asset.originalName createdAt')
+        .select('doctorName storeName clinicName uploaderRole mediaType asset.originalName createdAt')
         .sort({ createdAt: -1 })
         .limit(80)
         .lean(),
