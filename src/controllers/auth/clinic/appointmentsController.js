@@ -32,6 +32,8 @@ const mapClinicAppointmentPayload = (appointmentRecord, { lifecycleStatus = null
     consultationMode: normalizeConsultationMode(appointmentRecord?.consultationMode),
     createdAt: appointmentRecord?.createdAt || null,
     cancelledAt: appointmentRecord?.cancelledAt || null,
+    patientName: String(appointmentRecord?.patientName || '').trim(),
+    patientPhone: String(appointmentRecord?.patientPhone || '').trim(),
     doctor: {
       id: String(appointmentRecord?.doctorId || ''),
       name: String(appointmentRecord?.doctorName || '').trim(),

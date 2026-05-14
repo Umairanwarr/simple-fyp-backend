@@ -397,6 +397,90 @@ export const sendDoctorAppointmentBookedEmail = async ({
   await getTransporter().sendMail(mailOptions);
 };
 
+export const sendPatientClinicAppointmentBookedEmail = async ({
+  to,
+  patientName,
+  clinicName,
+  doctorName,
+  appointmentDate,
+  fromTime,
+  toTime,
+  consultationMode,
+  amountInRupees
+}) => {
+  ensureSmtpCredentials();
+
+  const safePatientName = String(patientName || 'Patient').trim();
+  const safeClinicName = String(clinicName || 'Clinic').trim();
+  const safeDoctorName = String(doctorName || 'Doctor').trim();
+  const modeLabel = consultationMode === 'offline' ? 'Offline (Clinic Visit)' : 'Online Consultation';
+  const amountText = formatCurrencyInRupees(amountInRupees);
+
+  const mailOptions = {
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject: `Clinic Appointment Booked — ${safeClinicName}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; color: #1f2937;">
+        <h2 style="color: #1EBDB8; margin-bottom: 8px;">Clinic Appointment Booked successfully 🎉</h2>
+        <p>Hi ${safePatientName},</p>
+        <p>Your appointment has been booked successfully at <strong>${safeClinicName}</strong> with <strong>Dr. ${safeDoctorName}</strong>.</p>
+        <div style="background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 10px; padding: 14px 16px; margin: 16px 0;">
+          <p style="margin: 0 0 8px;"><strong>Date:</strong> ${appointmentDate}</p>
+          <p style="margin: 0 0 8px;"><strong>Time:</strong> ${fromTime} - ${toTime}</p>
+          <p style="margin: 0 0 8px;"><strong>Mode:</strong> ${modeLabel}</p>
+          <p style="margin: 0;"><strong>Slot Fee:</strong> ${amountText}</p>
+        </div>
+        <p style="color: #6b7280; font-size: 13px;">Please be on time for your scheduled slot.</p>
+      </div>
+    `
+  };
+
+  await getTransporter().sendMail(mailOptions);
+};
+
+export const sendClinicAppointmentBookedEmail = async ({
+  to,
+  clinicName,
+  patientName,
+  doctorName,
+  appointmentDate,
+  fromTime,
+  toTime,
+  consultationMode,
+  amountInRupees
+}) => {
+  ensureSmtpCredentials();
+
+  const safeClinicName = String(clinicName || 'Clinic').trim();
+  const safePatientName = String(patientName || 'Patient').trim();
+  const safeDoctorName = String(doctorName || 'Doctor').trim();
+  const modeLabel = consultationMode === 'offline' ? 'Offline (Clinic Visit)' : 'Online Consultation';
+  const amountText = formatCurrencyInRupees(amountInRupees);
+
+  const mailOptions = {
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject: `New Appointment Received — Dr. ${safeDoctorName}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; color: #1f2937;">
+        <h2 style="color: #1EBDB8; margin-bottom: 8px;">New Appointment Booked 📦</h2>
+        <p>Hi ${safeClinicName},</p>
+        <p><strong>${safePatientName}</strong> has booked a new appointment with <strong>Dr. ${safeDoctorName}</strong>.</p>
+        <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; margin: 16px 0;">
+          <p style="margin: 0 0 8px;"><strong>Date:</strong> ${appointmentDate}</p>
+          <p style="margin: 0 0 8px;"><strong>Time:</strong> ${fromTime} - ${toTime}</p>
+          <p style="margin: 0 0 8px;"><strong>Mode:</strong> ${modeLabel}</p>
+          <p style="margin: 0;"><strong>Slot Fee:</strong> ${amountText}</p>
+        </div>
+        <p>This appointment is confirmed and has been added to your dashboard.</p>
+      </div>
+    `
+  };
+
+  await getTransporter().sendMail(mailOptions);
+};
+
 export const sendPatientAppointmentCancelledEmail = async ({
   to,
   patientName,

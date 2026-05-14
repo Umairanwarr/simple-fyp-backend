@@ -40,6 +40,22 @@ const clinicDoctorAppointmentSchema = new mongoose.Schema(
       default: '',
       trim: true
     },
+    patientId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Patient',
+      required: false,
+      index: true
+    },
+    patientName: {
+      type: String,
+      default: '',
+      trim: true
+    },
+    patientPhone: {
+      type: String,
+      default: '',
+      trim: true
+    },
     appointmentDate: {
       type: String,
       required: true,
