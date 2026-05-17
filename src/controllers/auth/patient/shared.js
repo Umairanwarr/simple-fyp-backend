@@ -168,6 +168,19 @@ export const parseAppointmentDateTime = ({ date, time }) => {
   return parsedDate;
 };
 
+export const isAvailabilitySlotExpired = (slot, now = new Date()) => {
+  const slotEndDateTime = parseAppointmentDateTime({
+    date: slot?.date,
+    time: slot?.toTime
+  });
+
+  if (!slotEndDateTime) {
+    return true;
+  }
+
+  return slotEndDateTime.getTime() <= now.getTime();
+};
+
 export const getAppointmentLifecycleStatus = (appointmentRecord, now = new Date()) => {
   const bookingStatus = String(appointmentRecord?.bookingStatus || '').trim();
   const paymentStatus = String(appointmentRecord?.paymentStatus || '').trim();
@@ -506,9 +519,17 @@ export const mapDoctorForPatientDirectory = (doctorRecord) => {
   };
 };
 
+const isStoreDiamondPlanActive = (storeRecord) => {
+  const plan = String(storeRecord?.currentPlan || '').trim().toLowerCase();
+  const status = String(storeRecord?.subscriptionStatus || '').trim().toLowerCase();
+  const expiryTimestamp = storeRecord?.planExpiresAt ? new Date(storeRecord.planExpiresAt).getTime() : 0;
+  return plan === 'diamond' && status === 'active' && expiryTimestamp > Date.now();
+};
+
 export const mapMedicalStoreForPatientDirectory = (storeRecord) => {
   const averageRating = Number(storeRecord?.averageRating || 0);
   const totalReviews = Math.max(0, Math.trunc(Number(storeRecord?.totalReviews || 0)));
+  const hasDiamondTag = isStoreDiamondPlanActive(storeRecord);
 
   return {
     id: String(storeRecord?._id),
@@ -520,7 +541,9 @@ export const mapMedicalStoreForPatientDirectory = (storeRecord) => {
     location: String(storeRecord?.address || '').trim() || 'Location not provided',
     availability: String(storeRecord?.operatingHours || '').trim() || 'Check hours',
     image: String(storeRecord?.avatarDocument?.url || '').trim() || '/pharmacy-placeholder.svg',
-    type: 'store'
+    type: 'store',
+    isTopStore: hasDiamondTag,
+    hasPrioritySupport: hasDiamondTag
   };
 };
 
@@ -528,10 +551,12 @@ export const mapDoctorSlotsByModeForPatientProfile = (doctorRecord) => {
   const rawSlots = Array.isArray(doctorRecord?.availabilitySlots)
     ? doctorRecord.availabilitySlots
     : [];
+  const now = new Date();
 
   const normalizedSlots = rawSlots
     .map((slot) => {
-      const consultationMode = String(slot?.consultationMode || '').trim().toLowerCase();
+      const rawConsultationMode = String(slot?.consultationMode || '').trim().toLowerCase();
+      const consultationMode = rawConsultationMode === 'video' ? 'online' : rawConsultationMode;
 
       if (!allowedConsultationModes.has(consultationMode)) {
         return null;
@@ -549,6 +574,10 @@ export const mapDoctorSlotsByModeForPatientProfile = (doctorRecord) => {
         : 0;
 
       if (!date || !fromTime || !toTime) {
+        return null;
+      }
+
+      if (isAvailabilitySlotExpired({ date, toTime }, now)) {
         return null;
       }
 
@@ -584,7 +613,7 @@ export const mapDoctorSlotsByModeForPatientProfile = (doctorRecord) => {
 
   return {
     online: normalizedSlots.filter((slot) => slot.consultationMode === 'online'),
-    video: normalizedSlots.filter((slot) => slot.consultationMode === 'video'),
+    video: [],
     offline: normalizedSlots.filter((slot) => slot.consultationMode === 'offline')
   };
 };
@@ -656,7 +685,7 @@ export const fetchPatientFavoriteStores = async (favoriteStoreIds) => {
     applicationStatus: 'approved',
     emailVerified: true
   })
-    .select('name licenseNumber address operatingHours avatarDocument bio')
+    .select('name licenseNumber address operatingHours avatarDocument bio currentPlan subscriptionStatus planExpiresAt')
     .lean();
 
   const storeById = new Map(stores.map((store) => [String(store._id), store]));

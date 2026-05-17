@@ -1,6 +1,7 @@
 import WithdrawRequest from '../../../models/WithdrawRequest.js';
 import { Doctor } from '../../auth/doctor/shared.js';
 import { MedicalStore } from '../../../models/MedicalStore.js';
+import { Clinic } from '../../../models/Clinic.js';
 import { sendWithdrawApprovedEmail, sendWithdrawRejectedEmail } from '../../../services/mailService.js';
 
 export const getAdminWithdrawRequests = async (req, res) => {
@@ -8,6 +9,7 @@ export const getAdminWithdrawRequests = async (req, res) => {
     const requests = await WithdrawRequest.find()
       .populate('doctorId', 'fullName email avatarDocument totalEarningsInRupees withdrawnAmountInRupees')
       .populate('storeId', 'name email avatarDocument totalEarningsInRupees withdrawnAmountInRupees')
+      .populate('clinicId', 'name email avatarDocument totalEarningsInRupees withdrawnAmountInRupees')
       .sort({ createdAt: -1 })
       .lean();
 
@@ -45,6 +47,12 @@ export const reviewWithdrawRequest = async (req, res) => {
       if (user) {
         userName = user.name;
         userRole = 'store';
+      }
+    } else if (withdrawRequest.clinicId) {
+      user = await Clinic.findById(withdrawRequest.clinicId).select('name email totalEarningsInRupees withdrawnAmountInRupees');
+      if (user) {
+        userName = user.name;
+        userRole = 'clinic';
       }
     }
 

@@ -21,6 +21,8 @@ import {
   sendPatientAppointmentCancelledEmail,
   sendPatientAppointmentConfirmationEmail
 } from './shared.js';
+import { ClinicDoctorAppointment } from '../../../models/ClinicDoctorAppointment.js';
+import { Clinic } from '../../../models/Clinic.js';
 
 const REFUND_WINDOW_MINUTES = 15;
 const REFUND_WINDOW_IN_MS = REFUND_WINDOW_MINUTES * 60 * 1000;
@@ -42,6 +44,21 @@ const normalizeRefundStatus = (refundStatus) => {
 const formatCurrencyInRupees = (amountInRupees) => {
   const safeAmount = Math.max(0, Math.trunc(Number(amountInRupees || 0)));
   return `Rs ${safeAmount.toLocaleString('en-PK')}`;
+};
+
+const isSlotExpired = (slot, now = new Date()) => {
+  const date = String(slot?.date || '').trim();
+  const toTime = String(slot?.toTime || '').trim();
+  if (!date || !toTime) {
+    return true;
+  }
+
+  const parsed = new Date(`${date}T${toTime}:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    return true;
+  }
+
+  return parsed.getTime() <= now.getTime();
 };
 
 export const createPatientAppointmentPaymentIntent = async (req, res) => {
@@ -106,6 +123,10 @@ export const createPatientAppointmentPaymentIntent = async (req, res) => {
 
     if (!selectedSlot) {
       return res.status(404).json({ message: 'Selected slot is no longer available' });
+    }
+
+    if (isSlotExpired(selectedSlot)) {
+      return res.status(400).json({ message: 'Selected slot is in the past. Please choose a current or future slot.' });
     }
 
     const slotPriceInRupees = Math.max(0, Math.trunc(Number(selectedSlot?.priceInRupees || 0)));
@@ -376,13 +397,22 @@ export const confirmPatientAppointmentPayment = async (req, res) => {
 
 export const getPatientAppointments = async (req, res) => {
   try {
-    const appointments = await Appointment.find({
-      patientId: req.user?.id,
-      bookingStatus: 'confirmed',
-      paymentStatus: 'succeeded'
-    })
-      .sort({ appointmentDate: 1, fromTime: 1, createdAt: -1 })
-      .lean();
+    const [appointments, clinicAppointmentsRaw] = await Promise.all([
+      Appointment.find({
+        patientId: req.user?.id,
+        bookingStatus: 'confirmed',
+        paymentStatus: 'succeeded'
+      })
+        .sort({ appointmentDate: 1, fromTime: 1, createdAt: -1 })
+        .lean(),
+      ClinicDoctorAppointment.find({
+        patientId: req.user?.id,
+        bookingStatus: 'confirmed',
+        paymentStatus: 'succeeded'
+      })
+        .sort({ appointmentDate: 1, fromTime: 1, createdAt: -1 })
+        .lean()
+    ]);
 
     const now = new Date();
 
@@ -400,8 +430,57 @@ export const getPatientAppointments = async (req, res) => {
         lifecycleStatus: appointmentEntry.lifecycleStatus
       }));
 
+    const clinicAppointments = clinicAppointmentsRaw
+      .map((appointment) => {
+        const lifecycleStatus = getAppointmentLifecycleStatus({
+          bookingStatus: 'confirmed',
+          paymentStatus: 'succeeded',
+          appointmentDate: appointment?.appointmentDate,
+          fromTime: appointment?.fromTime,
+          toTime: appointment?.toTime
+        }, now);
+
+        const isServiceAppointment = String(appointment?.providerType || '').trim().toLowerCase() === 'service';
+        const providerName = isServiceAppointment
+          ? String(appointment?.serviceName || appointment?.doctorName || 'Service').trim()
+          : String(appointment?.doctorName || '').trim() || 'Clinic Doctor';
+        const providerSpecialization = isServiceAppointment
+          ? String(appointment?.serviceType || '').trim().toLowerCase() === 'facility'
+            ? 'Facility Service'
+            : 'Lab Service'
+          : String(appointment?.doctorSpecialization || '').trim();
+
+        return {
+        id: String(appointment?._id || ''),
+        type: 'clinic',
+        providerType: isServiceAppointment ? 'service' : 'doctor',
+        status: lifecycleStatus === 'ongoing' ? 'Ongoing' : 'Booked',
+        statusCode: lifecycleStatus,
+        date: String(appointment?.appointmentDate || '').trim(),
+        fromTime: String(appointment?.fromTime || '').trim(),
+        toTime: String(appointment?.toTime || '').trim(),
+        consultationMode: String(appointment?.consultationMode || '').trim().toLowerCase() || 'offline',
+        amountInRupees: Math.max(0, Math.trunc(Number(appointment?.amountInRupees || 0))),
+        doctor: {
+          id: String(appointment?.doctorId || appointment?.serviceId || ''),
+          name: providerName,
+          image: String(appointment?.doctorAvatarUrl || '').trim() || '/topdoc.svg',
+          specialization: providerSpecialization
+        }
+        };
+      })
+      .filter((appointment) => appointment.statusCode === 'upcoming' || appointment.statusCode === 'ongoing');
+
     return res.status(200).json({
-      appointments: upcomingAppointments
+      appointments: [...upcomingAppointments, ...clinicAppointments].sort((first, second) => {
+        return getAppointmentStartTimestamp({
+          appointmentDate: first.date,
+          fromTime: first.fromTime
+        }) - getAppointmentStartTimestamp({
+          appointmentDate: second.date,
+          fromTime: second.fromTime
+        });
+      })
     });
   } catch (error) {
     return res.status(500).json({ message: 'Could not fetch patient appointments', error: error.message });
@@ -423,7 +502,161 @@ export const cancelPatientAppointment = async (req, res) => {
     });
 
     if (!appointment) {
-      return res.status(404).json({ message: 'Appointment not found' });
+      const clinicAppointment = await ClinicDoctorAppointment.findOne({
+        _id: appointmentId,
+        patientId: req.user?.id
+      });
+
+      if (!clinicAppointment) {
+        return res.status(404).json({ message: 'Appointment not found' });
+      }
+
+      if (clinicAppointment.paymentStatus !== 'succeeded') {
+        return res.status(400).json({ message: 'Only paid appointments can be cancelled from this screen' });
+      }
+
+      if (clinicAppointment.bookingStatus === 'cancelled') {
+        return res.status(200).json({ message: 'Appointment is already cancelled' });
+      }
+
+      const clinicLifecycleStatus = getAppointmentLifecycleStatus(clinicAppointment);
+      if (clinicLifecycleStatus === 'completed') {
+        return res.status(400).json({ message: 'Completed appointments cannot be cancelled' });
+      }
+      if (clinicLifecycleStatus === 'ongoing') {
+        return res.status(400).json({ message: 'Ongoing appointments cannot be cancelled' });
+      }
+
+      const cancellationTimestamp = new Date();
+      const paidAtTimestamp = clinicAppointment?.paidAt ? new Date(clinicAppointment.paidAt).getTime() : 0;
+      const refundWindowDeadlineTimestamp = paidAtTimestamp > 0 ? paidAtTimestamp + REFUND_WINDOW_IN_MS : 0;
+      const isEligibleForRefundWindow = refundWindowDeadlineTimestamp > 0
+        && cancellationTimestamp.getTime() <= refundWindowDeadlineTimestamp;
+
+      if (!isEligibleForRefundWindow && !confirmNoRefund) {
+        return res.status(400).json({
+          message: `Please confirm no-refund acknowledgement. Full refund is only available within ${REFUND_WINDOW_MINUTES} minutes of booking.`
+        });
+      }
+
+      let refundStatus = 'not_applicable';
+      let refundAmountInRupees = 0;
+      let refundId = '';
+      let refundFailureReason = '';
+      let refundedAt = null;
+
+      if (isEligibleForRefundWindow) {
+        refundAmountInRupees = Math.max(0, Math.trunc(Number(clinicAppointment.amountInRupees || 0)));
+
+        if (refundAmountInRupees > 0) {
+          let refundResult;
+          try {
+            const stripeClient = getStripeClient();
+            refundResult = await stripeClient.refunds.create({
+              payment_intent: String(clinicAppointment.paymentIntentId || '').trim(),
+              amount: refundAmountInRupees * 100,
+              reason: 'requested_by_customer',
+              metadata: {
+                appointmentId: String(clinicAppointment._id || ''),
+                clinicId: String(clinicAppointment.clinicId || ''),
+                patientId: String(clinicAppointment.patientId || ''),
+                cancelledByRole: 'patient',
+                refundWindowMinutes: String(REFUND_WINDOW_MINUTES)
+              }
+            });
+          } catch (error) {
+            if (/stripe secret key is not configured/i.test(String(error?.message || ''))) {
+              return res.status(500).json({ message: 'Stripe payment is not configured on server' });
+            }
+            return res.status(502).json({
+              message: 'Refund could not be processed. Appointment was not cancelled.',
+              error: error.message
+            });
+          }
+
+          refundStatus = normalizeRefundStatus(refundResult?.status);
+          refundId = String(refundResult?.id || '').trim();
+
+          if (refundStatus === 'failed') {
+            refundFailureReason = 'Stripe refund request failed';
+            return res.status(502).json({
+              message: 'Refund could not be processed. Appointment was not cancelled. Please try again later.'
+            });
+          }
+
+          if (refundStatus === 'succeeded') refundedAt = cancellationTimestamp;
+        }
+      }
+
+      clinicAppointment.bookingStatus = 'cancelled';
+      clinicAppointment.cancelledAt = cancellationTimestamp;
+      clinicAppointment.cancelledByRole = 'patient';
+      clinicAppointment.refundStatus = refundStatus;
+      clinicAppointment.refundAmountInRupees = refundAmountInRupees;
+      clinicAppointment.refundId = refundId;
+      clinicAppointment.refundFailureReason = refundFailureReason;
+      clinicAppointment.refundedAt = refundedAt;
+
+      if (isEligibleForRefundWindow) {
+        clinicAppointment.clinicPayoutInRupees = 0;
+        clinicAppointment.adminCommissionInRupees = 0;
+      }
+
+      await clinicAppointment.save();
+
+      const clinic = await Clinic.findById(clinicAppointment.clinicId).select('email name').lean();
+      const cancellationEmailPayload = {
+        appointmentDate: clinicAppointment.appointmentDate,
+        fromTime: clinicAppointment.fromTime,
+        toTime: clinicAppointment.toTime,
+        consultationMode: clinicAppointment.consultationMode,
+        amountInRupees: clinicAppointment.amountInRupees,
+        cancelledByRole: 'patient',
+        refundStatus,
+        refundAmountInRupees
+      };
+      const isServiceAppointment = String(clinicAppointment?.providerType || '').trim().toLowerCase() === 'service';
+      const providerLabel = isServiceAppointment
+        ? `${clinicAppointment.clinicName || clinic?.name || 'Clinic'} - ${clinicAppointment.serviceName || clinicAppointment.doctorName || 'Service'}`
+        : `${clinicAppointment.clinicName || clinic?.name || 'Clinic'} - Dr. ${clinicAppointment.doctorName || 'Doctor'}`;
+      const emailOperations = [];
+
+      if (clinicAppointment.patientEmail) {
+        emailOperations.push(sendPatientAppointmentCancelledEmail({
+          to: clinicAppointment.patientEmail,
+          patientName: clinicAppointment.patientName,
+          doctorName: providerLabel,
+          ...cancellationEmailPayload
+        }));
+      }
+
+      if (clinic?.email || clinicAppointment.clinicEmail) {
+        emailOperations.push(sendDoctorAppointmentCancelledEmail({
+          to: String(clinic?.email || clinicAppointment.clinicEmail || '').trim().toLowerCase(),
+          doctorName: clinicAppointment.clinicName || clinic?.name || 'Clinic',
+          patientName: clinicAppointment.patientName,
+          patientEmail: clinicAppointment.patientEmail,
+          ...cancellationEmailPayload
+        }));
+      }
+
+      await Promise.allSettled(emailOperations);
+
+      if (isEligibleForRefundWindow && refundStatus === 'succeeded' && refundAmountInRupees > 0) {
+        return res.status(200).json({
+          message: `Appointment cancelled. Full refund of ${formatCurrencyInRupees(refundAmountInRupees)} has been processed.`
+        });
+      }
+
+      if (isEligibleForRefundWindow && refundStatus === 'pending' && refundAmountInRupees > 0) {
+        return res.status(200).json({
+          message: `Appointment cancelled. Full refund of ${formatCurrencyInRupees(refundAmountInRupees)} is being processed.`
+        });
+      }
+
+      return res.status(200).json({
+        message: `Appointment cancelled. Refund is only available within ${REFUND_WINDOW_MINUTES} minutes of booking.`
+      });
     }
 
     if (appointment.paymentStatus !== 'succeeded') {
@@ -441,8 +674,12 @@ export const cancelPatientAppointment = async (req, res) => {
       return res.status(400).json({ message: 'Only confirmed appointments can be cancelled' });
     }
 
-    if (getAppointmentLifecycleStatus(appointment) === 'completed') {
+    const lifecycleStatus = getAppointmentLifecycleStatus(appointment);
+    if (lifecycleStatus === 'completed') {
       return res.status(400).json({ message: 'Completed appointments cannot be cancelled' });
+    }
+    if (lifecycleStatus === 'ongoing') {
+      return res.status(400).json({ message: 'Ongoing appointments cannot be cancelled' });
     }
 
     const cancellationTimestamp = new Date();

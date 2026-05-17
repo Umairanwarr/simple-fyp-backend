@@ -8,6 +8,7 @@ import { Patient } from '../models/Patient.js';
 import { Appointment } from '../models/Appointment.js';
 import { sendNewChatMessageEmail } from '../services/mailService.js';
 import { uploadChatMediaToCloudinary } from '../services/cloudinaryService.js';
+import { decryptChatMessageRecord, encryptChatPayload } from '../utils/chatCrypto.js';
 
 // Multer for chat media (images + videos, max 25MB)
 const chatMediaStorage = multer.memoryStorage();
@@ -149,7 +150,7 @@ router.get('/messages/:otherUserId', requireRoleAuth(), async (req, res) => {
       .sort({ createdAt: 1 })
       .lean();
 
-    return res.json({ messages });
+    return res.json({ messages: messages.map((message) => decryptChatMessageRecord(message)) });
   } catch (error) {
     return res.status(500).json({ message: error.message || 'Could not fetch messages' });
   }
@@ -200,7 +201,7 @@ router.get('/conversations', requireRoleAuth(), async (req, res) => {
         partnerName: partnerInfo.name,
         partnerAvatar: partnerInfo.avatarUrl,
         partnerPlan: partnerInfo.plan,
-        lastMessage: last,
+        lastMessage: decryptChatMessageRecord(last),
         unreadCount
       });
     }
@@ -232,13 +233,15 @@ router.post('/messages', requireRoleAuth(), async (req, res) => {
     // guess partner model as the inverse (if sending patient->doctor etc) - caller should set proper models
     const toModel = fromModel === 'Doctor' ? 'Patient' : 'Doctor';
 
+    const encryptedPayload = encryptChatPayload({ content, attachment: attachment || {} });
+
     const message = await ChatMessage.create({
       from: new mongoose.Types.ObjectId(userId),
       to: new mongoose.Types.ObjectId(to),
       fromModel,
       toModel,
-      content,
-      attachment: attachment || {}
+      content: encryptedPayload.content,
+      attachment: encryptedPayload.attachment
     });
 
     try {
@@ -265,7 +268,7 @@ router.post('/messages', requireRoleAuth(), async (req, res) => {
       console.error('Failed to prepare chat email notification:', emailErr);
     }
 
-    return res.status(201).json({ message });
+    return res.status(201).json({ message: decryptChatMessageRecord(message) });
   } catch (error) {
     return res.status(500).json({ message: error.message || 'Could not send message' });
   }

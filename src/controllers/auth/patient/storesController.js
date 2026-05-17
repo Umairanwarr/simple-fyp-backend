@@ -30,7 +30,7 @@ export const searchStoresForPatients = async (req, res) => {
     };
 
     const stores = await MedicalStore.find(filters)
-      .select('name licenseNumber address operatingHours avatarDocument bio')
+      .select('name licenseNumber address operatingHours avatarDocument bio currentPlan subscriptionStatus planExpiresAt')
       .sort({ updatedAt: -1 })
       .limit(250)
       .lean();
@@ -71,7 +71,7 @@ export const getStoreProfileForPatient = async (req, res) => {
       applicationStatus: 'approved',
       emailVerified: true
     })
-      .select('name licenseNumber address operatingHours avatarDocument bio phone reviews averageRating totalReviews')
+      .select('name licenseNumber address operatingHours avatarDocument bio phone reviews averageRating totalReviews currentPlan subscriptionStatus planExpiresAt')
       .lean();
 
     if (!store) {

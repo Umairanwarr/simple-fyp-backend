@@ -169,3 +169,49 @@ export const searchDoctorsForPatients = async (req, res) => {
     return res.status(500).json({ message: 'Could not fetch doctors for search', error: error.message });
   }
 };
+
+export const getExploreSpecialtiesForPatients = async (req, res) => {
+  try {
+    const doctors = await Doctor.find({
+      applicationStatus: { $ne: 'declined' },
+      emailVerified: true
+    })
+      .select('specialization')
+      .lean();
+
+    const specialtyBuckets = new Map();
+
+    doctors.forEach((doctor) => {
+      const rawSpecialty = String(doctor?.specialization || '').trim();
+      if (!rawSpecialty) return;
+
+      const specialtyKey = rawSpecialty.toLowerCase();
+      const existingBucket = specialtyBuckets.get(specialtyKey);
+
+      if (!existingBucket) {
+        specialtyBuckets.set(specialtyKey, {
+          id: rawSpecialty,
+          label: rawSpecialty,
+          doctorCount: 1
+        });
+        return;
+      }
+
+      existingBucket.doctorCount += 1;
+    });
+
+    const specialties = Array.from(specialtyBuckets.values())
+      .sort((firstItem, secondItem) => {
+        if (secondItem.doctorCount !== firstItem.doctorCount) {
+          return secondItem.doctorCount - firstItem.doctorCount;
+        }
+
+        return String(firstItem.label || '').localeCompare(String(secondItem.label || ''));
+      })
+      .slice(0, 40);
+
+    return res.status(200).json({ specialties });
+  } catch (error) {
+    return res.status(500).json({ message: 'Could not fetch specialties for explore', error: error.message });
+  }
+};

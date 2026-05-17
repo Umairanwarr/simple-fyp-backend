@@ -1,4 +1,10 @@
 import express from 'express';
+import {
+  confirmCampaignCheckoutSession,
+  createCampaignCheckoutSession,
+  getCampaignPricing,
+  getCampaignStatus
+} from '../controllers/campaignController.js';
 import { 
   getMedicalStoreNotifications, 
   markMedicalStoreNotificationsAsRead 
@@ -52,6 +58,10 @@ router.get('/subscription-status', requireRoleAuth(['medical-store']), getStoreS
 router.post('/create-subscription-checkout', requireRoleAuth(['medical-store']), createStoreSubscriptionCheckoutSession);
 router.post('/confirm-subscription-checkout', requireRoleAuth(['medical-store']), confirmStoreSubscriptionCheckoutSession);
 router.post('/cancel-subscription', requireRoleAuth(['medical-store']), cancelStoreSubscription);
+router.get('/campaign/pricing', requireRoleAuth(['medical-store']), getCampaignPricing);
+router.get('/campaign/status', requireRoleAuth(['medical-store']), getCampaignStatus);
+router.post('/campaign/checkout-session', requireRoleAuth(['medical-store']), createCampaignCheckoutSession);
+router.post('/campaign/confirm', requireRoleAuth(['medical-store']), confirmCampaignCheckoutSession);
 
 import { getStoreReviews } from '../controllers/auth/medical-store/reviewsController.js';
 

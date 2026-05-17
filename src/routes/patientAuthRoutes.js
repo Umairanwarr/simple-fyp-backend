@@ -1,4 +1,5 @@
 import express from 'express';
+import { getSponsoredAccountsForPatients } from '../controllers/campaignController.js';
 import {
   addDoctorToPatientFavorites,
   cancelPatientAppointment,
@@ -13,6 +14,7 @@ import {
   getPatientProfile,
   loginPatientWithGoogle,
   loginPatient,
+  getExploreSpecialtiesForPatients,
   markPatientNotificationsAsRead,
   removeDoctorFromPatientFavorites,
   resetPatientPassword,
@@ -38,7 +40,13 @@ import { handleAvatarUpload } from '../middlewares/uploadAvatar.js';
 
 const router = express.Router();
 
-import { searchClinicsForPatients, getClinicDoctorsForPatient, bookClinicDoctorAppointment } from '../controllers/auth/patient/clinicsController.js';
+import {
+  searchClinicsForPatients,
+  getClinicDoctorsForPatient,
+  bookClinicDoctorAppointment,
+  createClinicDoctorAppointmentPaymentIntent,
+  confirmClinicDoctorAppointmentPayment
+} from '../controllers/auth/patient/clinicsController.js';
 
 router.post('/register', registerPatient);
 router.post('/send-otp', sendPatientVerificationOtp);
@@ -46,11 +54,15 @@ router.post('/verify-otp', verifyPatientOtp);
 router.post('/reset-password', resetPatientPassword);
 router.post('/login', loginPatient);
 router.post('/google-login', loginPatientWithGoogle);
+router.get('/specialties', getExploreSpecialtiesForPatients);
 router.get('/doctors', searchDoctorsForPatients);
 router.get('/stores', searchStoresForPatients);
 router.get('/clinics', searchClinicsForPatients);
+router.get('/sponsored', getSponsoredAccountsForPatients);
 router.get('/clinics/:clinicId/doctors', getClinicDoctorsForPatient);
 router.post('/clinics/book', requireRoleAuth(['patient']), bookClinicDoctorAppointment);
+router.post('/clinics/appointments/payment-intent', requireRoleAuth(['patient']), createClinicDoctorAppointmentPaymentIntent);
+router.post('/clinics/appointments/confirm-payment', requireRoleAuth(['patient']), confirmClinicDoctorAppointmentPayment);
 router.get('/stores/:storeId/profile', requireRoleAuth(['patient']), getStoreProfileForPatient);
 router.post('/stores/:storeId/orders', requireRoleAuth(['patient']), createStoreOrder);
 router.get('/orders', requireRoleAuth(['patient']), getPatientStoreOrders);

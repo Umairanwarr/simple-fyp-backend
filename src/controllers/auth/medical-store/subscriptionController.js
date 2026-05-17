@@ -10,8 +10,8 @@ const PLAN_DURATION_DAYS = 30;
 const getDefaultStoreSubscriptionPricing = () => {
   return {
     platinumPriceInRupees: 0,
-    goldPriceInRupees: 1499,
-    diamondPriceInRupees: 3999
+    goldPriceInRupees: 1999,
+    diamondPriceInRupees: 4999
   };
 };
 

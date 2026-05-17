@@ -7,6 +7,7 @@ import { connectDB } from './config/db.js';
 import authRoutes from './routes/auth.js';
 import chatRoutes from './routes/chatRoutes.js';
 import storeChatRoutes from './routes/storeChatRoutes.js';
+import clinicChatRoutes from './routes/clinicChatRoutes.js';
 import agoraRoutes from './routes/agoraRoutes.js';
 import liveStreamRoutes from './routes/liveStreamRoutes.js';
 import medicineRoutes from './routes/medicineRoutes.js';
@@ -19,11 +20,14 @@ import jwt from 'jsonwebtoken';
 import { Server as IOServer } from 'socket.io';
 import ChatMessage from './models/ChatMessage.js';
 import StoreChatMessage from './models/StoreChatMessage.js';
+import ClinicChatMessage from './models/ClinicChatMessage.js';
 import { Doctor } from './models/Doctor.js';
 import { Patient } from './models/Patient.js';
 import { MedicalStore } from './models/MedicalStore.js';
+import { Clinic } from './models/Clinic.js';
 import { sendNewChatMessageEmail } from './services/mailService.js';
 import { hasActiveChatSession } from './routes/chatRoutes.js';
+import { encryptChatPayload } from './utils/chatCrypto.js';
 
 const currentFilePath = fileURLToPath(import.meta.url);
 const srcDirectory = path.dirname(currentFilePath);
@@ -56,6 +60,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/store-chat', storeChatRoutes);
+app.use('/api/clinic-chat', clinicChatRoutes);
 app.use('/api/agora', agoraRoutes);
 app.use('/api/livestream', liveStreamRoutes);
 app.use('/api/medicines', medicineRoutes);
@@ -130,13 +135,15 @@ const startServer = async () => {
           const fromModel = ROLE_TO_MODEL[role] || 'Patient';
           const toModel = fromModel === 'Doctor' ? 'Patient' : 'Doctor';
 
+          const encryptedPayload = encryptChatPayload({ content, attachment: attachment || {} });
+
           const message = await ChatMessage.create({
             from: fromId,
             to,
             fromModel,
             toModel,
-            content,
-            attachment: attachment || {}
+            content: encryptedPayload.content,
+            attachment: encryptedPayload.attachment
           });
 
           const out = {
@@ -145,8 +152,8 @@ const startServer = async () => {
             to: message.to,
             fromModel: message.fromModel,
             toModel: message.toModel,
-            content: message.content,
-            attachment: message.attachment,
+            content,
+            attachment: attachment || {},
             createdAt: message.createdAt
           };
 
@@ -217,13 +224,15 @@ const startServer = async () => {
 
           const toModel = fromModel === 'MedicalStore' ? 'Patient' : 'MedicalStore';
 
+          const encryptedPayload = encryptChatPayload({ content, attachment: attachment || {} });
+
           const message = await StoreChatMessage.create({
             from: fromId,
             to,
             fromModel,
             toModel,
-            content,
-            attachment: attachment || {}
+            content: encryptedPayload.content,
+            attachment: encryptedPayload.attachment
           });
 
           const out = {
@@ -232,8 +241,8 @@ const startServer = async () => {
             to: message.to,
             fromModel: message.fromModel,
             toModel: message.toModel,
-            content: message.content,
-            attachment: message.attachment,
+            content,
+            attachment: attachment || {},
             createdAt: message.createdAt
           };
 
@@ -265,6 +274,96 @@ const startServer = async () => {
             }
           } catch (emailErr) {
             console.error('Store chat email error:', emailErr);
+          }
+        } catch (err) {
+          if (typeof ack === 'function') ack({ ok: false, message: err.message });
+        }
+      });
+
+      // ─── Clinic-Patient Chat Socket ───
+      socket.on('clinic-chat:send', async (payload, ack) => {
+        try {
+          const fromId = String(socket.user.id || '').trim();
+          const role = String(socket.user.role || '').trim();
+          const to = String(payload?.to || '').trim();
+          const content = String(payload?.content || '').trim();
+          const attachment = payload?.attachment || null;
+
+          if (!fromId || !to || (!content && !attachment)) {
+            if (typeof ack === 'function') ack({ ok: false, message: 'Invalid payload' });
+            return;
+          }
+
+          const CLINIC_ROLE_TO_MODEL = { patient: 'Patient', clinic: 'Clinic' };
+          const fromModel = CLINIC_ROLE_TO_MODEL[role] || 'Patient';
+
+          // Clinics cannot initiate — only reply
+          if (fromModel === 'Clinic') {
+            const mongoose2 = (await import('mongoose')).default;
+            const existingThread = await ClinicChatMessage.findOne({
+              $or: [
+                { from: new mongoose2.Types.ObjectId(to), to: new mongoose2.Types.ObjectId(fromId) },
+                { from: new mongoose2.Types.ObjectId(fromId), to: new mongoose2.Types.ObjectId(to) }
+              ]
+            });
+            if (!existingThread) {
+              if (typeof ack === 'function') ack({ ok: false, message: 'Clinics cannot initiate chats.' });
+              return;
+            }
+          }
+
+          const toModel = fromModel === 'Clinic' ? 'Patient' : 'Clinic';
+
+          const encryptedPayload = encryptChatPayload({ content, attachment: attachment || {} });
+
+          const message = await ClinicChatMessage.create({
+            from: fromId,
+            to,
+            fromModel,
+            toModel,
+            content: encryptedPayload.content,
+            attachment: encryptedPayload.attachment
+          });
+
+          const out = {
+            id: message._id,
+            from: message.from,
+            to: message.to,
+            fromModel: message.fromModel,
+            toModel: message.toModel,
+            content,
+            attachment: attachment || {},
+            createdAt: message.createdAt
+          };
+
+          io.to(`user:${to}`).emit('clinic-chat:message', out);
+          io.to(`user:${fromId}`).emit('clinic-chat:message', out);
+
+          if (typeof ack === 'function') ack({ ok: true, message: out });
+
+          // Email notification
+          try {
+            const SenderModel = fromModel === 'Clinic' ? Clinic : Patient;
+            const RecipientModel = toModel === 'Clinic' ? Clinic : Patient;
+
+            const [senderDoc, recipientDoc] = await Promise.all([
+              SenderModel.findById(fromId).select(fromModel === 'Clinic' ? 'name' : 'firstName lastName').lean(),
+              RecipientModel.findById(to).select(toModel === 'Clinic' ? 'email name' : 'email firstName lastName').lean()
+            ]);
+
+            if (senderDoc && recipientDoc && recipientDoc.email) {
+              const senderName = fromModel === 'Clinic' ? senderDoc.name : `${senderDoc.firstName} ${senderDoc.lastName}`;
+              const recipientName = toModel === 'Clinic' ? recipientDoc.name : `${recipientDoc.firstName} ${recipientDoc.lastName}`;
+              sendNewChatMessageEmail({
+                to: recipientDoc.email,
+                recipientName,
+                senderName,
+                senderRole: fromModel === 'Clinic' ? 'clinic' : 'patient',
+                messagePreview: content.length > 50 ? content.substring(0, 47) + '...' : content
+              }).catch(e => console.error('Clinic chat email error:', e));
+            }
+          } catch (emailErr) {
+            console.error('Clinic chat email error:', emailErr);
           }
         } catch (err) {
           if (typeof ack === 'function') ack({ ok: false, message: err.message });

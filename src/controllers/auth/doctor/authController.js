@@ -90,6 +90,12 @@ export const registerDoctor = async (req, res) => {
     doctor.reviewedBy = null;
     doctor.verificationOtpHash = null;
     doctor.verificationOtpExpiresAt = null;
+    doctor.currentPlan = 'diamond';
+    doctor.subscriptionStatus = 'active';
+    doctor.planActivatedAt = doctor.planActivatedAt || new Date();
+    doctor.planExpiresAt = null;
+    doctor.planCancelledAt = null;
+    doctor.lastPlanPaymentAt = doctor.lastPlanPaymentAt || new Date();
 
     if (uploadedLicense) {
       doctor.licenseDocument = uploadedLicense;

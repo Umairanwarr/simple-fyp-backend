@@ -30,11 +30,6 @@ router.post('/create', requireRoleAuth(['doctor']), async (req, res) => {
 
     if (!doctor) return res.status(404).json({ message: 'Doctor not found' });
 
-    const plan = String(doctor.currentPlan || '').toLowerCase();
-    if (plan !== 'diamond') {
-      return res.status(403).json({ message: 'Live streaming is only available for Diamond plan subscribers' });
-    }
-
     const { title, description, scheduledAt, startNow } = req.body;
     if (!title || !String(title).trim()) {
       return res.status(400).json({ message: 'Stream title is required' });

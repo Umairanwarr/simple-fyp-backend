@@ -3,10 +3,7 @@ import { Clinic } from '../../../models/Clinic.js';
 import { ClinicDoctor } from '../../../models/ClinicDoctor.js';
 
 const normalizeConsultationMode = (mode) => {
-  const m = String(mode || '').toLowerCase().trim();
-  if (m === 'offline') return 'offline';
-  if (m === 'video') return 'video';
-  return 'online';
+  return 'offline';
 };
 
 const normalizeAddress = (address) => {
@@ -27,6 +24,19 @@ const toMinutes = (timeValue) => {
 
 const isValidDate = (date) => /^\d{4}-\d{2}-\d{2}$/.test(String(date || '').trim());
 const isValidTime = (time) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(String(time || '').trim());
+const parseSlotDateTime = ({ date, time }) => {
+  const normalizedDate = String(date || '').trim();
+  const normalizedTime = String(time || '').trim();
+  if (!normalizedDate || !normalizedTime) return null;
+  const parsed = new Date(`${normalizedDate}T${normalizedTime}:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const isSlotExpired = (slot, now = new Date()) => {
+  const slotEnd = parseSlotDateTime({ date: slot?.date, time: slot?.toTime });
+  if (!slotEnd) return true;
+  return slotEnd.getTime() <= now.getTime();
+};
 
 const hasOverlappingSlot = ({ slots, date, fromTime, toTime, excludeId = null }) => {
   const newStart = toMinutes(fromTime);
@@ -51,14 +61,13 @@ const mapSlots = (doctor) => {
     fromTime: String(slot.fromTime || '').trim(),
     toTime: String(slot.toTime || '').trim(),
     consultationMode: normalizeConsultationMode(slot.consultationMode),
-    offlineAddress: normalizeConsultationMode(slot.consultationMode) === 'offline'
-      ? normalizeAddress(slot.offlineAddress)
-      : '',
+    offlineAddress: '',
     priceInRupees: normalizePrice(slot.priceInRupees)
   }));
 };
 
 const validateSlotPayload = (payload) => {
+  const now = new Date();
   if (!isValidDate(payload.date)) return 'Date must be in YYYY-MM-DD format';
   if (!isValidTime(payload.fromTime) || !isValidTime(payload.toTime)) {
     return 'Time must be in HH:MM 24-hour format';
@@ -66,13 +75,23 @@ const validateSlotPayload = (payload) => {
   if (toMinutes(payload.fromTime) >= toMinutes(payload.toTime)) {
     return 'Start time must be earlier than end time';
   }
-  if (payload.consultationMode === 'offline' && !payload.offlineAddress) {
-    return 'Offline clinic address is required for clinic visit slots';
-  }
   if (payload.priceInRupees <= 0) {
     return 'Consultation fee must be greater than 0';
   }
+  if (isSlotExpired(payload, now)) {
+    return 'Availability slot must be in current or future time';
+  }
   return null;
+};
+
+const removeExpiredDoctorSlots = async (doctor) => {
+  if (!doctor || !Array.isArray(doctor.availabilitySlots)) return;
+  const now = new Date();
+  const activeSlots = doctor.availabilitySlots.filter((slot) => !isSlotExpired(slot, now));
+  if (activeSlots.length !== doctor.availabilitySlots.length) {
+    doctor.availabilitySlots = activeSlots;
+    await doctor.save();
+  }
 };
 
 export const getClinicDoctorAvailability = async (req, res) => {
@@ -96,6 +115,8 @@ export const getClinicDoctorAvailability = async (req, res) => {
     if (!doctor) {
       return res.status(404).json({ message: 'Doctor not found in your clinic' });
     }
+
+    await removeExpiredDoctorSlots(doctor);
 
     return res.status(200).json({
       doctor: {
@@ -121,6 +142,8 @@ export const getAllClinicDoctorsAvailability = async (req, res) => {
     const doctors = await ClinicDoctor.find({ clinicId: clinic._id })
       .select('fullName specialization avatarDocument availabilitySlots')
       .sort({ fullName: 1 });
+
+    await Promise.all(doctors.map((doctor) => removeExpiredDoctorSlots(doctor)));
 
     const doctorsWithSlots = doctors.map((doctor) => ({
       doctor: {
@@ -149,8 +172,7 @@ export const createClinicDoctorAvailability = async (req, res) => {
       date,
       fromTime,
       toTime,
-      consultationMode = 'online',
-      offlineAddress = '',
+      consultationMode = 'offline',
       priceInRupees = 0
     } = req.body || {};
 
@@ -164,7 +186,7 @@ export const createClinicDoctorAvailability = async (req, res) => {
       fromTime: String(fromTime || '').trim(),
       toTime: String(toTime || '').trim(),
       consultationMode: normalizedMode,
-      offlineAddress: normalizedMode === 'offline' ? normalizeAddress(offlineAddress) : '',
+      offlineAddress: '',
       priceInRupees: normalizePrice(priceInRupees)
     };
 
@@ -186,6 +208,8 @@ export const createClinicDoctorAvailability = async (req, res) => {
     if (!doctor) {
       return res.status(404).json({ message: 'Doctor not found in your clinic' });
     }
+
+    await removeExpiredDoctorSlots(doctor);
 
     if (hasOverlappingSlot({ slots: doctor.availabilitySlots || [], ...payload })) {
       return res.status(409).json({ message: 'This slot overlaps with an existing slot on the same date' });
@@ -204,9 +228,7 @@ export const createClinicDoctorAvailability = async (req, res) => {
         fromTime: String(insertedSlot.fromTime || '').trim(),
         toTime: String(insertedSlot.toTime || '').trim(),
         consultationMode: normalizeConsultationMode(insertedSlot.consultationMode),
-        offlineAddress: normalizeConsultationMode(insertedSlot.consultationMode) === 'offline'
-          ? normalizeAddress(insertedSlot.offlineAddress)
-          : '',
+        offlineAddress: '',
         priceInRupees: normalizePrice(insertedSlot.priceInRupees)
       },
       slots: mapSlots(doctor)
@@ -223,8 +245,7 @@ export const updateClinicDoctorAvailabilitySlot = async (req, res) => {
       date,
       fromTime,
       toTime,
-      consultationMode = 'online',
-      offlineAddress = '',
+      consultationMode = 'offline',
       priceInRupees = 0
     } = req.body || {};
 
@@ -238,7 +259,7 @@ export const updateClinicDoctorAvailabilitySlot = async (req, res) => {
       fromTime: String(fromTime || '').trim(),
       toTime: String(toTime || '').trim(),
       consultationMode: normalizedMode,
-      offlineAddress: normalizedMode === 'offline' ? normalizeAddress(offlineAddress) : '',
+      offlineAddress: '',
       priceInRupees: normalizePrice(priceInRupees)
     };
 
@@ -260,6 +281,8 @@ export const updateClinicDoctorAvailabilitySlot = async (req, res) => {
     if (!doctor) {
       return res.status(404).json({ message: 'Doctor not found in your clinic' });
     }
+
+    await removeExpiredDoctorSlots(doctor);
 
     const existingSlot = doctor.availabilitySlots.id(slotId);
     if (!existingSlot) {
@@ -286,9 +309,7 @@ export const updateClinicDoctorAvailabilitySlot = async (req, res) => {
         fromTime: String(existingSlot.fromTime || '').trim(),
         toTime: String(existingSlot.toTime || '').trim(),
         consultationMode: normalizeConsultationMode(existingSlot.consultationMode),
-        offlineAddress: normalizeConsultationMode(existingSlot.consultationMode) === 'offline'
-          ? normalizeAddress(existingSlot.offlineAddress)
-          : '',
+        offlineAddress: '',
         priceInRupees: normalizePrice(existingSlot.priceInRupees)
       },
       slots: mapSlots(doctor)

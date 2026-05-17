@@ -14,6 +14,30 @@ const getClinicAvatarUrl = (clinicRecord) => {
   return String(clinicRecord?.avatarDocument?.url || '').trim();
 };
 
+const mapClinicSessionPayload = (clinicRecord) => ({
+  id: clinicRecord._id,
+  name: clinicRecord.name,
+  email: clinicRecord.email,
+  role: clinicRecord.role,
+  applicationStatus: clinicRecord.applicationStatus,
+  avatarUrl: getClinicAvatarUrl(clinicRecord),
+  currentPlan: ['platinum', 'gold', 'diamond'].includes(String(clinicRecord?.currentPlan || '').trim().toLowerCase())
+    ? String(clinicRecord.currentPlan).trim().toLowerCase()
+    : 'platinum',
+  subscriptionStatus: ['active', 'cancelled', 'expired'].includes(String(clinicRecord?.subscriptionStatus || '').trim().toLowerCase())
+    ? String(clinicRecord.subscriptionStatus).trim().toLowerCase()
+    : 'active',
+  planActivatedAt: clinicRecord?.planActivatedAt || null,
+  planExpiresAt: clinicRecord?.planExpiresAt || null,
+  lastPlanPaymentAt: clinicRecord?.lastPlanPaymentAt || null
+});
+const isDiamondPlanActive = (clinicRecord) => {
+  const plan = String(clinicRecord?.currentPlan || '').trim().toLowerCase();
+  const status = String(clinicRecord?.subscriptionStatus || '').trim().toLowerCase();
+  const expiryTimestamp = clinicRecord?.planExpiresAt ? new Date(clinicRecord.planExpiresAt).getTime() : 0;
+  return plan === 'diamond' && status === 'active' && expiryTimestamp > Date.now();
+};
+
 export const registerClinic = async (req, res) => {
   try {
     const {
@@ -283,14 +307,7 @@ export const loginClinic = async (req, res) => {
     return res.status(200).json({
       message: 'Login successful',
       token,
-      clinic: {
-        id: clinic._id,
-        name: clinic.name,
-        email: clinic.email,
-        role: clinic.role,
-        applicationStatus: clinic.applicationStatus,
-        avatarUrl: getClinicAvatarUrl(clinic)
-      }
+      clinic: mapClinicSessionPayload(clinic)
     });
   } catch (error) {
     return res.status(500).json({ message: 'Server error', error: error.message });
@@ -313,11 +330,17 @@ export const getClinicProfile = async (req, res) => {
         phone: clinic.phone,
         facilityType: clinic.facilityType,
         address: clinic.address,
+        about: clinic.about || '',
         applicationStatus: clinic.applicationStatus,
         role: clinic.role,
         avatarUrl: getClinicAvatarUrl(clinic),
         permitDocument: clinic.permitDocument || null,
-        createdAt: clinic.createdAt
+        createdAt: clinic.createdAt,
+        currentPlan: clinic.currentPlan || 'platinum',
+        subscriptionStatus: clinic.subscriptionStatus || 'active',
+        planExpiresAt: clinic.planExpiresAt || null,
+        isVerifiedBadge: isDiamondPlanActive(clinic),
+        hasPrioritySupport: isDiamondPlanActive(clinic)
       }
     });
   } catch (error) {
@@ -327,7 +350,7 @@ export const getClinicProfile = async (req, res) => {
 
 export const updateClinicProfile = async (req, res) => {
   try {
-    const { name, phone, address, facilityType } = req.body;
+    const { name, phone, address, facilityType, about } = req.body;
 
     const clinic = await Clinic.findById(req.user?.id);
 
@@ -339,6 +362,7 @@ export const updateClinicProfile = async (req, res) => {
     if (phone) clinic.phone = String(phone).trim();
     if (address) clinic.address = String(address).trim();
     if (facilityType) clinic.facilityType = String(facilityType).trim();
+    if (about !== undefined) clinic.about = String(about || '').trim().slice(0, 2000);
 
     await clinic.save();
 
@@ -351,9 +375,15 @@ export const updateClinicProfile = async (req, res) => {
         phone: clinic.phone,
         facilityType: clinic.facilityType,
         address: clinic.address,
+        about: clinic.about || '',
         applicationStatus: clinic.applicationStatus,
         role: clinic.role,
-        avatarUrl: getClinicAvatarUrl(clinic)
+        avatarUrl: getClinicAvatarUrl(clinic),
+        currentPlan: clinic.currentPlan || 'platinum',
+        subscriptionStatus: clinic.subscriptionStatus || 'active',
+        planExpiresAt: clinic.planExpiresAt || null,
+        isVerifiedBadge: isDiamondPlanActive(clinic),
+        hasPrioritySupport: isDiamondPlanActive(clinic)
       }
     });
   } catch (error) {
@@ -386,14 +416,7 @@ export const updateClinicAvatar = async (req, res) => {
 
     return res.status(200).json({
       message: 'Avatar updated successfully',
-      clinic: {
-        id: clinic._id,
-        name: clinic.name,
-        email: clinic.email,
-        role: clinic.role,
-        applicationStatus: clinic.applicationStatus,
-        avatarUrl: getClinicAvatarUrl(clinic)
-      }
+      clinic: mapClinicSessionPayload(clinic)
     });
   } catch (error) {
     return res.status(500).json({ message: 'Could not update avatar', error: error.message });

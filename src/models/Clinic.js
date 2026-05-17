@@ -30,6 +30,12 @@ const clinicSchema = new mongoose.Schema(
       required: true,
       trim: true
     },
+    about: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 2000
+    },
     permitDocument: {
       url: {
         type: String,
@@ -138,6 +144,62 @@ const clinicSchema = new mongoose.Schema(
       default: 0,
       min: 0
     },
+    averageRating: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 5
+    },
+    totalReviews: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    profileCtr: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    reviews: [
+      {
+        appointmentId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'ClinicDoctorAppointment',
+          required: true
+        },
+        patientId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'Patient',
+          default: null
+        },
+        patientName: {
+          type: String,
+          default: 'Patient',
+          trim: true
+        },
+        doctorName: {
+          type: String,
+          default: '',
+          trim: true
+        },
+        rating: {
+          type: Number,
+          required: true,
+          min: 1,
+          max: 5
+        },
+        comment: {
+          type: String,
+          default: '',
+          trim: true,
+          maxlength: 1000
+        },
+        createdAt: {
+          type: Date,
+          default: Date.now
+        }
+      }
+    ],
     withdrawnAmountInRupees: {
       type: Number,
       default: 0,
@@ -146,6 +208,44 @@ const clinicSchema = new mongoose.Schema(
     notificationsSeenAt: {
       type: Date,
       default: null
+    },
+    currentPlan: {
+      type: String,
+      enum: ['platinum', 'gold', 'diamond'],
+      default: 'platinum'
+    },
+    subscriptionStatus: {
+      type: String,
+      enum: ['active', 'cancelled', 'expired'],
+      default: 'active'
+    },
+    planActivatedAt: {
+      type: Date,
+      default: Date.now
+    },
+    planExpiresAt: {
+      type: Date,
+      default: null
+    },
+    planCancelledAt: {
+      type: Date,
+      default: null
+    },
+    lastPlanPaymentAt: {
+      type: Date,
+      default: null
+    },
+    lastPlanCheckoutSessionId: {
+      type: String,
+      default: ''
+    },
+    lastPlanPaymentIntentId: {
+      type: String,
+      default: ''
+    },
+    stripeCustomerId: {
+      type: String,
+      default: ''
     }
   },
   {

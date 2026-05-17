@@ -232,7 +232,7 @@ const doctorSchema = new mongoose.Schema(
     currentPlan: {
       type: String,
       enum: ['platinum', 'gold', 'diamond'],
-      default: 'platinum'
+      default: 'diamond'
     },
     subscriptionStatus: {
       type: String,

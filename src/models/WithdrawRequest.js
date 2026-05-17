@@ -12,6 +12,11 @@ const withdrawRequestSchema = new mongoose.Schema(
       ref: 'MedicalStore',
       required: false
     },
+    clinicId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Clinic',
+      required: false
+    },
     amountInRupees: {
       type: Number,
       required: true,
