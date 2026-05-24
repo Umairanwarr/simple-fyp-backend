@@ -63,6 +63,7 @@ const mapClinicAppointmentPayload = (appointmentRecord, { lifecycleStatus = null
     cancelledAt: appointmentRecord?.cancelledAt || null,
     patientName: String(appointmentRecord?.patientName || '').trim(),
     patientPhone: String(appointmentRecord?.patientPhone || '').trim(),
+    bookingReason: String(appointmentRecord?.bookingReason || '').trim(),
     providerType,
     serviceType,
     providerId,

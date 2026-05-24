@@ -61,6 +61,10 @@ const isSlotExpired = (slot, now = new Date()) => {
   return parsed.getTime() <= now.getTime();
 };
 
+const normalizeBookingReason = (reasonValue) => {
+  return String(reasonValue || '').trim().replace(/\s+/g, ' ').slice(0, 500);
+};
+
 export const createPatientAppointmentPaymentIntent = async (req, res) => {
   try {
     const {
@@ -71,7 +75,8 @@ export const createPatientAppointmentPaymentIntent = async (req, res) => {
       aptSuite = '',
       city,
       state,
-      zip
+      zip,
+      bookingReason
     } = req.body || {};
 
     if (!mongoose.Types.ObjectId.isValid(doctorId)) {
@@ -88,6 +93,7 @@ export const createPatientAppointmentPaymentIntent = async (req, res) => {
     const normalizedCity = normalizeAddressField(city);
     const normalizedState = normalizeAddressField(state);
     const normalizedZip = normalizeAddressField(zip);
+    const normalizedBookingReason = normalizeBookingReason(bookingReason);
 
     if (!phoneNumberPattern.test(normalizedPhoneNumber)) {
       return res.status(400).json({ message: 'Phone number must contain only digits and be 7 to 15 digits long' });
@@ -95,6 +101,10 @@ export const createPatientAppointmentPaymentIntent = async (req, res) => {
 
     if (!normalizedStreetAddress || !normalizedCity || !normalizedState || !normalizedZip) {
       return res.status(400).json({ message: 'Complete contact address details are required' });
+    }
+
+    if (normalizedBookingReason.length < 3) {
+      return res.status(400).json({ message: 'Appointment reason must be at least 3 characters long' });
     }
 
     const patient = await Patient.findById(req.user?.id)
@@ -188,6 +198,7 @@ export const createPatientAppointmentPaymentIntent = async (req, res) => {
           state: normalizedState,
           zip: normalizedZip
         },
+        bookingReason: normalizedBookingReason,
         slotId: String(selectedSlot._id),
         appointmentDate: String(selectedSlot?.date || '').trim(),
         fromTime: String(selectedSlot?.fromTime || '').trim(),

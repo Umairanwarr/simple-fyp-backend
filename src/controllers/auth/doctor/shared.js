@@ -474,6 +474,7 @@ export const mapDoctorScheduleRecord = (appointmentRecord) => {
     patientName: String(appointmentRecord?.patientName || '').trim() || 'Patient',
     patientEmail: String(appointmentRecord?.patientEmail || '').trim() || 'N/A',
     patientPhoneNumber: String(appointmentRecord?.contactPhoneNumber || '').trim() || 'N/A',
+    bookingReason: String(appointmentRecord?.bookingReason || '').trim(),
     appointmentDate: String(appointmentRecord?.appointmentDate || '').trim(),
     fromTime: String(appointmentRecord?.fromTime || '').trim(),
     toTime: String(appointmentRecord?.toTime || '').trim(),
@@ -513,6 +514,7 @@ export const mapDoctorAppointmentForDashboard = (appointmentRecord, { lifecycleS
     toTime: String(appointmentRecord?.toTime || '').trim(),
     consultationMode: normalizeConsultationMode(appointmentRecord?.consultationMode) || 'online',
     amountInRupees: Math.max(0, Math.trunc(Number(appointmentRecord?.amountInRupees || 0))),
+    bookingReason: String(appointmentRecord?.bookingReason || '').trim(),
     cancelledAt: appointmentRecord?.cancelledAt || null,
     patient: {
       id: String(appointmentRecord?.patientId || ''),

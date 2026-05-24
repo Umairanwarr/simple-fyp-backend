@@ -95,6 +95,12 @@ const clinicDoctorAppointmentSchema = new mongoose.Schema(
       state: { type: String, default: '', trim: true },
       zip: { type: String, default: '', trim: true }
     },
+    bookingReason: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 500
+    },
     slotId: {
       type: String,
       default: '',

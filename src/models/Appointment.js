@@ -67,6 +67,12 @@ const appointmentSchema = new mongoose.Schema(
         trim: true
       }
     },
+    bookingReason: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 500
+    },
     slotId: {
       type: String,
       required: true,

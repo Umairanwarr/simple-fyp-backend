@@ -76,7 +76,7 @@ export const getDoctorAppointments = async (req, res) => {
       }
     })
       .select(
-        'patientId patientName patientEmail contactPhoneNumber appointmentDate fromTime toTime consultationMode amountInRupees bookingStatus paymentStatus cancelledAt createdAt updatedAt'
+        'patientId patientName patientEmail contactPhoneNumber bookingReason appointmentDate fromTime toTime consultationMode amountInRupees bookingStatus paymentStatus cancelledAt createdAt updatedAt'
       )
       .lean();
 

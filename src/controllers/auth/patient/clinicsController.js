@@ -18,6 +18,7 @@ const phoneNumberPattern = /^\d{7,15}$/;
 
 const normalizePhoneNumber = (value) => String(value || '').replace(/\D/g, '').slice(0, 15);
 const normalizeAddressField = (value) => String(value || '').trim();
+const normalizeBookingReason = (reasonValue) => String(reasonValue || '').trim().replace(/\s+/g, ' ').slice(0, 500);
 const escapeRegex = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const getPatientDisplayName = (patientRecord) => {
   const fullName = `${String(patientRecord?.firstName || '').trim()} ${String(patientRecord?.lastName || '').trim()}`.trim();
@@ -356,7 +357,8 @@ export const createClinicDoctorAppointmentPaymentIntent = async (req, res) => {
       aptSuite = '',
       city,
       state,
-      zip
+      zip,
+      bookingReason
     } = req.body || {};
 
     const hasDoctorId = mongoose.Types.ObjectId.isValid(doctorId);
@@ -376,6 +378,7 @@ export const createClinicDoctorAppointmentPaymentIntent = async (req, res) => {
     const normalizedCity = normalizeAddressField(city);
     const normalizedState = normalizeAddressField(state);
     const normalizedZip = normalizeAddressField(zip);
+    const normalizedBookingReason = normalizeBookingReason(bookingReason);
 
     if (!phoneNumberPattern.test(normalizedPhoneNumber)) {
       return res.status(400).json({ message: 'Phone number must contain only digits and be 7 to 15 digits long' });
@@ -383,6 +386,10 @@ export const createClinicDoctorAppointmentPaymentIntent = async (req, res) => {
 
     if (!normalizedStreetAddress || !normalizedCity || !normalizedState || !normalizedZip) {
       return res.status(400).json({ message: 'Complete contact address details are required' });
+    }
+
+    if (normalizedBookingReason.length < 3) {
+      return res.status(400).json({ message: 'Appointment reason must be at least 3 characters long' });
     }
 
     const [patient, clinic] = await Promise.all([
@@ -497,6 +504,7 @@ export const createClinicDoctorAppointmentPaymentIntent = async (req, res) => {
           state: normalizedState,
           zip: normalizedZip
         },
+        bookingReason: normalizedBookingReason,
         slotId: String(selectedSlot._id),
         appointmentDate: String(selectedSlot?.date || '').trim(),
         fromTime: String(selectedSlot?.fromTime || '').trim(),
@@ -697,7 +705,8 @@ export const bookClinicDoctorAppointment = async (req, res) => {
       doctorId,
       serviceId,
       slotId,
-      patientName
+      patientName,
+      bookingReason
     } = req.body || {};
 
     const hasDoctorId = mongoose.Types.ObjectId.isValid(doctorId);
@@ -748,6 +757,7 @@ export const bookClinicDoctorAppointment = async (req, res) => {
     const patient = await Patient.findById(req.user?.id).select('firstName lastName phone email').lean();
     let computedPatientName = 'Patient Name Not Set';
     let computedPatientPhone = '';
+    const normalizedBookingReason = normalizeBookingReason(bookingReason);
 
     if (patient) {
       computedPatientName = `${String(patient.firstName || '').trim()} ${String(patient.lastName || '').trim()}`.trim() || 'Patient';
@@ -770,6 +780,7 @@ export const bookClinicDoctorAppointment = async (req, res) => {
       patientId: patient?._id || null,
       patientName: computedPatientName,
       patientPhone: computedPatientPhone,
+      bookingReason: normalizedBookingReason,
       appointmentDate: slot.date,
       fromTime: slot.fromTime,
       toTime: slot.toTime,
