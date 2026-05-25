@@ -185,6 +185,14 @@ export const getAppointmentLifecycleStatus = (appointmentRecord, now = new Date(
     return 'pending';
   }
 
+  const consultationEndedAtTimestamp = appointmentRecord?.consultationEndedAt
+    ? new Date(appointmentRecord.consultationEndedAt).getTime()
+    : 0;
+
+  if (Number.isFinite(consultationEndedAtTimestamp) && consultationEndedAtTimestamp > 0 && consultationEndedAtTimestamp <= now.getTime()) {
+    return 'completed';
+  }
+
   return getAppointmentLifecycleStatusByTimeZone({
     appointmentDate: appointmentRecord?.appointmentDate,
     fromTime: appointmentRecord?.fromTime,
@@ -423,7 +431,7 @@ export const mapAppointmentForPatient = (appointmentRecord, { lifecycleStatus = 
     reviewComment: String(appointmentRecord?.reviewComment || '').trim(),
     bookedAt: appointmentRecord?.paidAt || appointmentRecord?.createdAt || null,
     cancelledAt: appointmentRecord?.cancelledAt || null,
-    completedAt: parseAppointmentDateTime({
+    completedAt: appointmentRecord?.consultationEndedAt || parseAppointmentDateTime({
       date: appointmentRecord?.appointmentDate,
       time: appointmentRecord?.toTime
     }),

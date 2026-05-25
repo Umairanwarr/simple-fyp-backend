@@ -128,7 +128,7 @@ const startServer = async () => {
           }
 
           if (!(await hasActiveChatSession(fromId, to))) {
-            if (typeof ack === 'function') ack({ ok: false, message: 'Cannot chat without an active or upcoming appointment' });
+            if (typeof ack === 'function') ack({ ok: false, message: 'Cannot chat unless the appointment is ongoing' });
             return;
           }
 

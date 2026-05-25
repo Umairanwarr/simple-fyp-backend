@@ -147,6 +147,16 @@ const appointmentSchema = new mongoose.Schema(
       trim: true,
       lowercase: true
     },
+    consultationEndedAt: {
+      type: Date,
+      default: null
+    },
+    consultationEndedByRole: {
+      type: String,
+      default: '',
+      trim: true,
+      lowercase: true
+    },
     rescheduledAt: {
       type: Date,
       default: null

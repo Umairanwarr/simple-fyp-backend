@@ -10,6 +10,7 @@ import {
   sendPatientAppointmentCancelledEmail
 } from './shared.js';
 import { Patient } from '../../../models/Patient.js';
+import ChatMessage from '../../../models/ChatMessage.js';
 
 const getAppointmentStartSortTimestamp = (appointmentRecord) => {
   const appointmentDate = String(appointmentRecord?.appointmentDate || '').trim();
@@ -76,7 +77,7 @@ export const getDoctorAppointments = async (req, res) => {
       }
     })
       .select(
-        'patientId patientName patientEmail contactPhoneNumber bookingReason appointmentDate fromTime toTime consultationMode amountInRupees bookingStatus paymentStatus cancelledAt createdAt updatedAt'
+        'patientId patientName patientEmail contactPhoneNumber bookingReason appointmentDate fromTime toTime consultationMode amountInRupees bookingStatus paymentStatus cancelledAt consultationEndedAt createdAt updatedAt'
       )
       .lean();
 
@@ -544,5 +545,69 @@ export const rescheduleDoctorUpcomingAppointment = async (req, res) => {
         : 'Could not reschedule appointment',
       error: error.message
     });
+  }
+};
+
+export const endDoctorOngoingAppointment = async (req, res) => {
+  try {
+    const { appointmentId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(appointmentId)) {
+      return res.status(400).json({ message: 'Invalid appointment id' });
+    }
+
+    const appointment = await Appointment.findOne({
+      _id: appointmentId,
+      doctorId: req.user?.id
+    });
+
+    if (!appointment) {
+      return res.status(404).json({ message: 'Appointment not found' });
+    }
+
+    if (appointment.paymentStatus !== 'succeeded') {
+      return res.status(400).json({ message: 'Only paid appointments can be ended from this screen' });
+    }
+
+    if (appointment.bookingStatus !== 'confirmed') {
+      return res.status(400).json({ message: 'Only confirmed appointments can be ended' });
+    }
+
+    if (appointment.consultationEndedAt) {
+      return res.status(200).json({ message: 'Appointment is already ended' });
+    }
+
+    const lifecycleStatus = getDoctorAppointmentLifecycleStatus(appointment);
+
+    if (lifecycleStatus !== 'ongoing') {
+      return res.status(400).json({ message: 'Only ongoing appointments can be ended' });
+    }
+
+    appointment.consultationEndedAt = new Date();
+    appointment.consultationEndedByRole = 'doctor';
+    await appointment.save();
+
+    const doctorId = String(appointment.doctorId || '').trim();
+    const patientId = String(appointment.patientId || '').trim();
+
+    let clearedMessagesCount = 0;
+    if (mongoose.Types.ObjectId.isValid(doctorId) && mongoose.Types.ObjectId.isValid(patientId)) {
+      const deleteResult = await ChatMessage.deleteMany({
+        $or: [
+          { from: new mongoose.Types.ObjectId(doctorId), to: new mongoose.Types.ObjectId(patientId) },
+          { from: new mongoose.Types.ObjectId(patientId), to: new mongoose.Types.ObjectId(doctorId) }
+        ]
+      });
+
+      clearedMessagesCount = Math.max(0, Math.trunc(Number(deleteResult?.deletedCount || 0)));
+    }
+
+    return res.status(200).json({
+      message: 'Appointment ended and chat has been cleared',
+      appointmentId: String(appointment._id || ''),
+      clearedMessagesCount
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Could not end appointment', error: error.message });
   }
 };

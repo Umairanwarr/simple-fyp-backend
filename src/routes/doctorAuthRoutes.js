@@ -29,6 +29,7 @@ import {
   updateDoctorAvatar,
   uploadDoctorMedia,
   verifyDoctorOtp,
+  endDoctorOngoingAppointment,
   getDoctorCompletedPatients,
   createDoctorPrescription,
   getDoctorPrescriptions,
@@ -63,6 +64,7 @@ router.post('/campaign/checkout-session', requireRoleAuth(['doctor']), createCam
 router.post('/campaign/confirm', requireRoleAuth(['doctor']), confirmCampaignCheckoutSession);
 router.patch('/appointments/:appointmentId/cancel', requireRoleAuth(['doctor']), cancelDoctorUpcomingAppointment);
 router.patch('/appointments/:appointmentId/reschedule', requireRoleAuth(['doctor']), rescheduleDoctorUpcomingAppointment);
+router.patch('/appointments/:appointmentId/end', requireRoleAuth(['doctor']), endDoctorOngoingAppointment);
 router.get('/media', requireRoleAuth(['doctor']), getDoctorMediaLibrary);
 router.post('/media', requireRoleAuth(['doctor']), handleDoctorMediaUpload, uploadDoctorMedia);
 router.delete('/media/:mediaId', requireRoleAuth(['doctor']), deleteDoctorMedia);

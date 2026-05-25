@@ -319,6 +319,14 @@ export const getDoctorAppointmentLifecycleStatus = (appointmentRecord, now = new
     return 'pending';
   }
 
+  const consultationEndedAtTimestamp = appointmentRecord?.consultationEndedAt
+    ? new Date(appointmentRecord.consultationEndedAt).getTime()
+    : 0;
+
+  if (Number.isFinite(consultationEndedAtTimestamp) && consultationEndedAtTimestamp > 0 && consultationEndedAtTimestamp <= now.getTime()) {
+    return 'completed';
+  }
+
   return getAppointmentLifecycleStatusByTimeZone({
     appointmentDate: appointmentRecord?.appointmentDate,
     fromTime: appointmentRecord?.fromTime,

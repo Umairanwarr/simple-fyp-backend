@@ -39,7 +39,7 @@ export const getPatientPendingReviewAppointment = async (req, res) => {
         paymentStatus: 'succeeded',
         reviewStatus: 'pending'
       })
-        .select('doctorId doctorName doctorAvatarUrl appointmentDate fromTime toTime amountInRupees bookingStatus paymentStatus reviewStatus')
+        .select('doctorId doctorName doctorAvatarUrl appointmentDate fromTime toTime amountInRupees bookingStatus paymentStatus reviewStatus consultationEndedAt')
         .sort({ appointmentDate: 1, toTime: 1, createdAt: 1 })
         .lean(),
       ClinicDoctorAppointment.find({
