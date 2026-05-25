@@ -15,7 +15,7 @@ import {
 import { STRIPE_CURRENCY, getStripeClient } from '../../../services/stripeService.js';
 import { generateOtp, getOtpExpiryDate, hashOtp } from '../../../utils/otp.js';
 import { generateAuthToken } from '../../../utils/token.js';
-import { isSlotExpiredByTimeZone } from '../../../utils/slotExpiry.js';
+import { getAppointmentLifecycleStatusByTimeZone, isSlotExpiredByTimeZone } from '../../../utils/slotExpiry.js';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
 
@@ -185,25 +185,12 @@ export const getAppointmentLifecycleStatus = (appointmentRecord, now = new Date(
     return 'pending';
   }
 
-  const appointmentEndDateTime = parseAppointmentDateTime({
-    date: appointmentRecord?.appointmentDate,
-    time: appointmentRecord?.toTime
+  return getAppointmentLifecycleStatusByTimeZone({
+    appointmentDate: appointmentRecord?.appointmentDate,
+    fromTime: appointmentRecord?.fromTime,
+    toTime: appointmentRecord?.toTime,
+    now
   });
-
-  const appointmentStartDateTime = parseAppointmentDateTime({
-    date: appointmentRecord?.appointmentDate,
-    time: appointmentRecord?.fromTime
-  });
-
-  if (appointmentEndDateTime && appointmentEndDateTime.getTime() <= now.getTime()) {
-    return 'completed';
-  }
-
-  if (appointmentStartDateTime && appointmentEndDateTime && now.getTime() >= appointmentStartDateTime.getTime() && now.getTime() < appointmentEndDateTime.getTime()) {
-    return 'ongoing';
-  }
-
-  return 'upcoming';
 };
 
 const getAppointmentStatusLabel = (lifecycleStatus) => {

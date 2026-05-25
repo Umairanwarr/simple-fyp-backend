@@ -14,7 +14,7 @@ import {
 import { STRIPE_CURRENCY, getStripeClient } from '../../../services/stripeService.js';
 import { generateOtp, getOtpExpiryDate, hashOtp } from '../../../utils/otp.js';
 import { generateAuthToken } from '../../../utils/token.js';
-import { isSlotExpiredByTimeZone } from '../../../utils/slotExpiry.js';
+import { getAppointmentLifecycleStatusByTimeZone, isSlotExpiredByTimeZone } from '../../../utils/slotExpiry.js';
 
 export {
   Appointment,
@@ -319,28 +319,12 @@ export const getDoctorAppointmentLifecycleStatus = (appointmentRecord, now = new
     return 'pending';
   }
 
-  const appointmentStart = parseAppointmentDateTime({
-    date: appointmentRecord?.appointmentDate,
-    time: appointmentRecord?.fromTime
+  return getAppointmentLifecycleStatusByTimeZone({
+    appointmentDate: appointmentRecord?.appointmentDate,
+    fromTime: appointmentRecord?.fromTime,
+    toTime: appointmentRecord?.toTime,
+    now
   });
-  const appointmentEnd = parseAppointmentDateTime({
-    date: appointmentRecord?.appointmentDate,
-    time: appointmentRecord?.toTime
-  });
-
-  if (appointmentStart && now.getTime() < appointmentStart.getTime()) {
-    return 'upcoming';
-  }
-
-  if (appointmentStart && appointmentEnd && now.getTime() >= appointmentStart.getTime() && now.getTime() < appointmentEnd.getTime()) {
-    return 'ongoing';
-  }
-
-  if (appointmentEnd && now.getTime() >= appointmentEnd.getTime()) {
-    return 'completed';
-  }
-
-  return 'upcoming';
 };
 
 const formatCurrencyInRupees = (amountInRupees) => {

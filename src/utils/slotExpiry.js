@@ -3,7 +3,6 @@ const TIME_PATTERN = /^(\d{1,2}):(\d{2})$/;
 
 const DEFAULT_APPOINTMENT_TIME_ZONE = String(
   process.env.APPOINTMENT_TIME_ZONE ||
-  process.env.DEFAULT_TIME_ZONE ||
   'Asia/Karachi'
 ).trim() || 'Asia/Karachi';
 
@@ -81,6 +80,10 @@ const getDateTimePartsInTimeZone = (now = new Date(), timeZone = DEFAULT_APPOINT
   }
 };
 
+export const getDateTimeInTimeZone = (now = new Date(), timeZone = DEFAULT_APPOINTMENT_TIME_ZONE) => {
+  return getDateTimePartsInTimeZone(now, timeZone);
+};
+
 export const isSlotExpiredByTimeZone = (slot, now = new Date(), timeZone = DEFAULT_APPOINTMENT_TIME_ZONE) => {
   const slotDate = normalizeDateValue(slot?.date);
   const slotEndTime = normalizeTimeValue(slot?.toTime);
@@ -104,4 +107,44 @@ export const isSlotExpiredByTimeZone = (slot, now = new Date(), timeZone = DEFAU
   }
 
   return slotEndTime <= currentDateTime.time;
+};
+
+export const getAppointmentLifecycleStatusByTimeZone = ({
+  appointmentDate,
+  fromTime,
+  toTime,
+  now = new Date(),
+  timeZone = DEFAULT_APPOINTMENT_TIME_ZONE
+}) => {
+  const normalizedDate = normalizeDateValue(appointmentDate);
+  const normalizedFromTime = normalizeTimeValue(fromTime);
+  const normalizedToTime = normalizeTimeValue(toTime);
+
+  if (!normalizedDate || !normalizedFromTime || !normalizedToTime) {
+    return 'upcoming';
+  }
+
+  const currentDateTime = getDateTimePartsInTimeZone(now, timeZone);
+
+  if (!currentDateTime?.date || !currentDateTime?.time) {
+    return 'upcoming';
+  }
+
+  if (currentDateTime.date < normalizedDate) {
+    return 'upcoming';
+  }
+
+  if (currentDateTime.date > normalizedDate) {
+    return 'completed';
+  }
+
+  if (currentDateTime.time < normalizedFromTime) {
+    return 'upcoming';
+  }
+
+  if (currentDateTime.time >= normalizedToTime) {
+    return 'completed';
+  }
+
+  return 'ongoing';
 };

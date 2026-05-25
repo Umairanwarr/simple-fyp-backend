@@ -1,3 +1,5 @@
+import { getAppointmentLifecycleStatusByTimeZone } from '../../../utils/slotExpiry.js';
+
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const timePattern = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const allowedConsultationModes = new Set(['online', 'offline', 'video']);
@@ -67,26 +69,10 @@ export const getClinicAppointmentLifecycleStatus = (appointmentRecord, now = new
     return 'cancelled';
   }
 
-  const appointmentStart = parseClinicAppointmentDateTime({
-    date: appointmentRecord?.appointmentDate,
-    time: appointmentRecord?.fromTime
+  return getAppointmentLifecycleStatusByTimeZone({
+    appointmentDate: appointmentRecord?.appointmentDate,
+    fromTime: appointmentRecord?.fromTime,
+    toTime: appointmentRecord?.toTime,
+    now
   });
-  const appointmentEnd = parseClinicAppointmentDateTime({
-    date: appointmentRecord?.appointmentDate,
-    time: appointmentRecord?.toTime
-  });
-
-  if (appointmentStart && now.getTime() < appointmentStart.getTime()) {
-    return 'upcoming';
-  }
-
-  if (appointmentStart && appointmentEnd && now.getTime() >= appointmentStart.getTime() && now.getTime() < appointmentEnd.getTime()) {
-    return 'ongoing';
-  }
-
-  if (appointmentEnd && now.getTime() >= appointmentEnd.getTime()) {
-    return 'completed';
-  }
-
-  return 'upcoming';
 };
