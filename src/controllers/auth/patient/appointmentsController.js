@@ -23,6 +23,7 @@ import {
 } from './shared.js';
 import { ClinicDoctorAppointment } from '../../../models/ClinicDoctorAppointment.js';
 import { Clinic } from '../../../models/Clinic.js';
+import { isSlotExpiredByTimeZone } from '../../../utils/slotExpiry.js';
 
 const REFUND_WINDOW_MINUTES = 15;
 const REFUND_WINDOW_IN_MS = REFUND_WINDOW_MINUTES * 60 * 1000;
@@ -47,18 +48,21 @@ const formatCurrencyInRupees = (amountInRupees) => {
 };
 
 const isSlotExpired = (slot, now = new Date()) => {
-  const date = String(slot?.date || '').trim();
-  const toTime = String(slot?.toTime || '').trim();
-  if (!date || !toTime) {
-    return true;
+  return isSlotExpiredByTimeZone(slot, now);
+};
+
+const removeExpiredDoctorSlots = async (doctor) => {
+  if (!doctor || !Array.isArray(doctor.availabilitySlots)) {
+    return;
   }
 
-  const parsed = new Date(`${date}T${toTime}:00`);
-  if (Number.isNaN(parsed.getTime())) {
-    return true;
-  }
+  const now = new Date();
+  const activeSlots = doctor.availabilitySlots.filter((slot) => !isSlotExpired(slot, now));
 
-  return parsed.getTime() <= now.getTime();
+  if (activeSlots.length !== doctor.availabilitySlots.length) {
+    doctor.availabilitySlots = activeSlots;
+    await doctor.save();
+  }
 };
 
 const normalizeBookingReason = (reasonValue) => {
@@ -120,12 +124,13 @@ export const createPatientAppointmentPaymentIntent = async (req, res) => {
       applicationStatus: 'approved',
       emailVerified: true
     })
-      .select('fullName avatarDocument availabilitySlots')
-      .lean();
+      .select('fullName avatarDocument availabilitySlots');
 
     if (!doctor) {
       return res.status(404).json({ message: 'Doctor not found' });
     }
+
+    await removeExpiredDoctorSlots(doctor);
 
     const selectedSlot = Array.isArray(doctor.availabilitySlots)
       ? doctor.availabilitySlots.find((slot) => String(slot?._id) === String(slotId))
@@ -136,6 +141,16 @@ export const createPatientAppointmentPaymentIntent = async (req, res) => {
     }
 
     if (isSlotExpired(selectedSlot)) {
+      await Doctor.updateOne(
+        { _id: doctor._id },
+        {
+          $pull: {
+            availabilitySlots: {
+              _id: selectedSlot._id
+            }
+          }
+        }
+      );
       return res.status(400).json({ message: 'Selected slot is in the past. Please choose a current or future slot.' });
     }
 

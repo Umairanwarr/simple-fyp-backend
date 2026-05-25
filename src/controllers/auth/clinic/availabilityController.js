@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { Clinic } from '../../../models/Clinic.js';
 import { ClinicDoctor } from '../../../models/ClinicDoctor.js';
+import { isSlotExpiredByTimeZone } from '../../../utils/slotExpiry.js';
 
 const normalizeConsultationMode = (mode) => {
   return 'offline';
@@ -24,18 +25,8 @@ const toMinutes = (timeValue) => {
 
 const isValidDate = (date) => /^\d{4}-\d{2}-\d{2}$/.test(String(date || '').trim());
 const isValidTime = (time) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(String(time || '').trim());
-const parseSlotDateTime = ({ date, time }) => {
-  const normalizedDate = String(date || '').trim();
-  const normalizedTime = String(time || '').trim();
-  if (!normalizedDate || !normalizedTime) return null;
-  const parsed = new Date(`${normalizedDate}T${normalizedTime}:00`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-};
-
 const isSlotExpired = (slot, now = new Date()) => {
-  const slotEnd = parseSlotDateTime({ date: slot?.date, time: slot?.toTime });
-  if (!slotEnd) return true;
-  return slotEnd.getTime() <= now.getTime();
+  return isSlotExpiredByTimeZone(slot, now);
 };
 
 const hasOverlappingSlot = ({ slots, date, fromTime, toTime, excludeId = null }) => {

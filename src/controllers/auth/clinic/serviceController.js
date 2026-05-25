@@ -3,18 +3,10 @@ import { Clinic } from '../../../models/Clinic.js';
 import { ClinicDoctorAppointment } from '../../../models/ClinicDoctorAppointment.js';
 import { ClinicService } from '../../../models/ClinicService.js';
 import { toMinutes } from './appointmentShared.js';
-const parseSlotDateTime = ({ date, time }) => {
-  const normalizedDate = String(date || '').trim();
-  const normalizedTime = String(time || '').trim();
-  if (!normalizedDate || !normalizedTime) return null;
-  const parsed = new Date(`${normalizedDate}T${normalizedTime}:00`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-};
+import { isSlotExpiredByTimeZone } from '../../../utils/slotExpiry.js';
 
 const isSlotExpired = (slot, now = new Date()) => {
-  const slotEnd = parseSlotDateTime({ date: slot?.date, time: slot?.toTime });
-  if (!slotEnd) return true;
-  return slotEnd.getTime() <= now.getTime();
+  return isSlotExpiredByTimeZone(slot, now);
 };
 
 const isServiceManageAllowed = (clinicRecord) => {

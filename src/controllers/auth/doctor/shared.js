@@ -14,6 +14,7 @@ import {
 import { STRIPE_CURRENCY, getStripeClient } from '../../../services/stripeService.js';
 import { generateOtp, getOtpExpiryDate, hashOtp } from '../../../utils/otp.js';
 import { generateAuthToken } from '../../../utils/token.js';
+import { isSlotExpiredByTimeZone } from '../../../utils/slotExpiry.js';
 
 export {
   Appointment,
@@ -168,16 +169,7 @@ export const parseAppointmentDateTime = ({ date, time }) => {
 };
 
 export const isAvailabilitySlotExpired = (slot, now = new Date()) => {
-  const slotEndDateTime = parseAppointmentDateTime({
-    date: slot?.date,
-    time: slot?.toTime
-  });
-
-  if (!slotEndDateTime) {
-    return true;
-  }
-
-  return slotEndDateTime.getTime() <= now.getTime();
+  return isSlotExpiredByTimeZone(slot, now);
 };
 
 export const isValidCalendarDate = (dateValue) => {

@@ -15,6 +15,7 @@ import {
 import { STRIPE_CURRENCY, getStripeClient } from '../../../services/stripeService.js';
 import { generateOtp, getOtpExpiryDate, hashOtp } from '../../../utils/otp.js';
 import { generateAuthToken } from '../../../utils/token.js';
+import { isSlotExpiredByTimeZone } from '../../../utils/slotExpiry.js';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
 
@@ -169,16 +170,7 @@ export const parseAppointmentDateTime = ({ date, time }) => {
 };
 
 export const isAvailabilitySlotExpired = (slot, now = new Date()) => {
-  const slotEndDateTime = parseAppointmentDateTime({
-    date: slot?.date,
-    time: slot?.toTime
-  });
-
-  if (!slotEndDateTime) {
-    return true;
-  }
-
-  return slotEndDateTime.getTime() <= now.getTime();
+  return isSlotExpiredByTimeZone(slot, now);
 };
 
 export const getAppointmentLifecycleStatus = (appointmentRecord, now = new Date()) => {
@@ -465,15 +457,19 @@ export const getSlotDateTime = (slot) => {
 };
 
 export const getDoctorNextAvailabilityLabel = (availabilitySlots) => {
+  const now = new Date();
   const slotDateTimes = Array.isArray(availabilitySlots)
-    ? availabilitySlots.map((slot) => getSlotDateTime(slot)).filter(Boolean).sort((a, b) => a.getTime() - b.getTime())
+    ? availabilitySlots
+      .filter((slot) => !isAvailabilitySlotExpired(slot, now))
+      .map((slot) => getSlotDateTime(slot))
+      .filter(Boolean)
+      .sort((a, b) => a.getTime() - b.getTime())
     : [];
 
   if (slotDateTimes.length === 0) {
     return 'Check doctor schedule';
   }
 
-  const now = new Date();
   const nextSlot = slotDateTimes.find((slotDate) => slotDate.getTime() >= now.getTime()) || slotDateTimes[0];
   const todayKey = now.toDateString();
   const tomorrow = new Date(now);

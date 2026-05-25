@@ -13,6 +13,7 @@ import {
   sendPatientClinicAppointmentBookedEmail,
   sendClinicAppointmentBookedEmail
 } from '../../../services/mailService.js';
+import { isSlotExpiredByTimeZone } from '../../../utils/slotExpiry.js';
 
 const phoneNumberPattern = /^\d{7,15}$/;
 
@@ -39,18 +40,8 @@ const isClinicDiamondPlanActive = (clinicRecord) => {
   const expiryTimestamp = clinicRecord?.planExpiresAt ? new Date(clinicRecord.planExpiresAt).getTime() : 0;
   return plan === 'diamond' && status === 'active' && expiryTimestamp > Date.now();
 };
-const parseSlotDateTime = ({ date, time }) => {
-  const normalizedDate = String(date || '').trim();
-  const normalizedTime = String(time || '').trim();
-  if (!normalizedDate || !normalizedTime) return null;
-  const parsed = new Date(`${normalizedDate}T${normalizedTime}:00`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-};
-
 const isSlotExpired = (slot, now = new Date()) => {
-  const slotEnd = parseSlotDateTime({ date: slot?.date, time: slot?.toTime });
-  if (!slotEnd) return true;
-  return slotEnd.getTime() <= now.getTime();
+  return isSlotExpiredByTimeZone(slot, now);
 };
 
 const mapActiveSlots = (slots) => {
@@ -436,6 +427,17 @@ export const createClinicDoctorAppointmentPaymentIntent = async (req, res) => {
     }
 
     if (isSlotExpired(selectedSlot)) {
+      const pullExpiredSlotOperation = providerType === 'doctor'
+        ? ClinicDoctor.updateOne(
+            { _id: providerId, clinicId: clinic._id },
+            { $pull: { availabilitySlots: { _id: selectedSlot._id } } }
+          )
+        : ClinicService.updateOne(
+            { _id: providerId, clinicId: clinic._id },
+            { $pull: { availabilitySlots: { _id: selectedSlot._id } } }
+          );
+
+      await pullExpiredSlotOperation;
       return res.status(400).json({ message: 'Selected slot is in the past. Please choose a current or future slot.' });
     }
 
