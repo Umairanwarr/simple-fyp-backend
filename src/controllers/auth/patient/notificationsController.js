@@ -12,6 +12,37 @@ import Prescription from '../../../models/Prescription.js';
 import { StoreOrderNotification } from '../../../models/StoreOrderNotification.js';
 import { decryptChatText } from '../../../utils/chatCrypto.js';
 
+const mapPatientReminderNotification = ({
+  id,
+  appointmentId,
+  providerName,
+  providerType = 'doctor',
+  clinicName = '',
+  appointmentDate,
+  fromTime,
+  toTime,
+  reminderSentAt
+}) => {
+  if (!reminderSentAt) {
+    return null;
+  }
+
+  const normalizedProviderType = String(providerType || '').trim().toLowerCase();
+  const safeProviderName = String(providerName || '').trim() || (normalizedProviderType === 'service' ? 'Service' : 'Doctor');
+  const safeClinicName = String(clinicName || '').trim();
+  const providerLabel = normalizedProviderType === 'service' ? safeProviderName : `Dr. ${safeProviderName}`;
+  const clinicSuffix = safeClinicName ? ` at ${safeClinicName}` : '';
+
+  return {
+    id,
+    appointmentId,
+    type: 'appointment_reminder',
+    title: 'Appointment Reminder',
+    message: `Your appointment with ${providerLabel}${clinicSuffix} starts in 5 minutes on ${appointmentDate} (${fromTime} - ${toTime}).`,
+    createdAt: new Date(reminderSentAt).toISOString()
+  };
+};
+
 export const getPatientNotifications = async (req, res) => {
   try {
     const patient = await Patient.findById(req.user?.id)
@@ -30,7 +61,7 @@ export const getPatientNotifications = async (req, res) => {
       }
     })
       .select(
-        'doctorName appointmentDate fromTime toTime bookingStatus paymentStatus paidAt cancelledAt cancelledByRole refundStatus refundAmountInRupees rescheduledAt rescheduledByRole rescheduleReason previousAppointmentDate previousFromTime previousToTime createdAt updatedAt'
+        'doctorName appointmentDate fromTime toTime bookingStatus paymentStatus paidAt cancelledAt cancelledByRole refundStatus refundAmountInRupees rescheduledAt rescheduledByRole rescheduleReason previousAppointmentDate previousFromTime previousToTime reminderSentAt createdAt updatedAt'
       )
       .sort({ updatedAt: -1, createdAt: -1 })
       .limit(40)
@@ -43,7 +74,7 @@ export const getPatientNotifications = async (req, res) => {
         $in: ['confirmed', 'cancelled']
       }
     })
-      .select('clinicName doctorName providerType serviceName appointmentDate fromTime toTime bookingStatus paymentStatus paidAt cancelledAt cancelledByRole refundStatus refundAmountInRupees createdAt updatedAt')
+      .select('clinicName doctorName providerType serviceName appointmentDate fromTime toTime bookingStatus paymentStatus paidAt cancelledAt cancelledByRole refundStatus refundAmountInRupees reminderSentAt createdAt updatedAt')
       .sort({ updatedAt: -1, createdAt: -1 })
       .limit(40)
       .lean();
@@ -74,6 +105,38 @@ export const getPatientNotifications = async (req, res) => {
           : `${clinicName} confirmed your appointment with ${isServiceAppointment ? providerName : `Dr. ${providerName}`} for ${date} (${time}).`,
         createdAt: appointment?.cancelledAt || appointment?.paidAt || appointment?.createdAt || appointment?.updatedAt || null
       };
+    });
+
+    const appointmentReminderNotifications = appointments.map((appointment) => {
+      return mapPatientReminderNotification({
+        id: `${String(appointment?._id || '')}:reminder`,
+        appointmentId: String(appointment?._id || ''),
+        providerName: appointment?.doctorName,
+        providerType: 'doctor',
+        appointmentDate: appointment?.appointmentDate,
+        fromTime: appointment?.fromTime,
+        toTime: appointment?.toTime,
+        reminderSentAt: appointment?.reminderSentAt
+      });
+    });
+
+    const clinicAppointmentReminderNotifications = clinicAppointments.map((appointment) => {
+      const isServiceAppointment = String(appointment?.providerType || '').trim().toLowerCase() === 'service';
+      const providerName = isServiceAppointment
+        ? String(appointment?.serviceName || appointment?.doctorName || 'Service').trim()
+        : String(appointment?.doctorName || 'Doctor').trim();
+
+      return mapPatientReminderNotification({
+        id: `${String(appointment?._id || '')}:clinic-reminder`,
+        appointmentId: String(appointment?._id || ''),
+        providerName,
+        providerType: appointment?.providerType,
+        clinicName: appointment?.clinicName,
+        appointmentDate: appointment?.appointmentDate,
+        fromTime: appointment?.fromTime,
+        toTime: appointment?.toTime,
+        reminderSentAt: appointment?.reminderSentAt
+      });
     });
 
     const unreadChats = await ChatMessage.find({
@@ -157,6 +220,8 @@ export const getPatientNotifications = async (req, res) => {
     const notifications = [
       ...appointments.map((appointment) => mapPatientNotificationFromAppointment(appointment)).filter(Boolean),
       ...clinicAppointmentNotifications,
+      ...appointmentReminderNotifications,
+      ...clinicAppointmentReminderNotifications,
       ...chatNotifications,
       ...clinicChatNotifications,
       ...prescriptionNotifications,

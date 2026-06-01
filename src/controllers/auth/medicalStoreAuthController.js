@@ -7,6 +7,7 @@ import {
 import { sendVerificationOtpEmail } from '../../services/mailService.js';
 import { generateOtp, getOtpExpiryDate, hashOtp } from '../../utils/otp.js';
 import { generateAuthToken } from '../../utils/token.js';
+import crypto from 'crypto';
 
 const normalizeEmail = (email) => String(email || '').toLowerCase().trim();
 
@@ -97,10 +98,14 @@ export const registerMedicalStore = async (req, res) => {
 
 export const sendMedicalStoreVerificationOtp = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, purpose = 'signup' } = req.body;
 
     if (!email) {
       return res.status(400).json({ message: 'Email is required' });
+    }
+
+    if (!['signup', 'reset'].includes(purpose)) {
+      return res.status(400).json({ message: 'Invalid OTP purpose' });
     }
 
     const normalizedEmail = normalizeEmail(email);
@@ -110,8 +115,12 @@ export const sendMedicalStoreVerificationOtp = async (req, res) => {
       return res.status(404).json({ message: 'Medical store not found. Please register first.' });
     }
 
-    if (medicalStore.emailVerified) {
+    if (purpose === 'signup' && medicalStore.emailVerified) {
       return res.status(400).json({ message: 'Email is already verified. Your application is under review.' });
+    }
+
+    if (purpose === 'reset' && !medicalStore.emailVerified) {
+      return res.status(400).json({ message: 'Please verify your account first before resetting password.' });
     }
 
     const otp = generateOtp(6);
@@ -133,17 +142,23 @@ export const sendMedicalStoreVerificationOtp = async (req, res) => {
 
 export const sendMedicalStoreLoginOtp = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, password } = req.body;
 
-    if (!email) {
-      return res.status(400).json({ message: 'Email is required' });
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password are required' });
     }
 
     const normalizedEmail = normalizeEmail(email);
     const medicalStore = await MedicalStore.findOne({ email: normalizedEmail });
 
     if (!medicalStore) {
-      return res.status(404).json({ message: 'Medical store not found' });
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    const isMatch = await medicalStore.comparePassword(password);
+
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Invalid credentials' });
     }
 
     if (!medicalStore.emailVerified) {
@@ -177,10 +192,14 @@ export const sendMedicalStoreLoginOtp = async (req, res) => {
 
 export const verifyMedicalStoreOtp = async (req, res) => {
   try {
-    const { email, otp } = req.body;
+    const { email, otp, purpose = 'signup' } = req.body;
 
     if (!email || !otp) {
       return res.status(400).json({ message: 'Email and OTP are required' });
+    }
+
+    if (!['signup', 'reset'].includes(purpose)) {
+      return res.status(400).json({ message: 'Invalid OTP purpose' });
     }
 
     const normalizedEmail = normalizeEmail(email);
@@ -190,8 +209,12 @@ export const verifyMedicalStoreOtp = async (req, res) => {
       return res.status(404).json({ message: 'Medical store not found. Please register first.' });
     }
 
-    if (medicalStore.emailVerified) {
+    if (purpose === 'signup' && medicalStore.emailVerified) {
       return res.status(200).json({ message: 'Email already verified. Application is under review.' });
+    }
+
+    if (purpose === 'reset' && !medicalStore.emailVerified) {
+      return res.status(400).json({ message: 'Account is not verified yet' });
     }
 
     if (!medicalStore.verificationOtpHash || !medicalStore.verificationOtpExpiresAt) {
@@ -212,14 +235,79 @@ export const verifyMedicalStoreOtp = async (req, res) => {
       return res.status(400).json({ message: 'Invalid verification code' });
     }
 
-    medicalStore.emailVerified = true;
+    if (purpose === 'signup') {
+      medicalStore.emailVerified = true;
+    }
+
     medicalStore.verificationOtpHash = null;
     medicalStore.verificationOtpExpiresAt = null;
+    let resetToken;
+
+    if (purpose === 'reset') {
+      resetToken = crypto.randomBytes(32).toString('hex');
+      medicalStore.resetPasswordTokenHash = hashOtp(resetToken);
+      medicalStore.resetPasswordTokenExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
+    }
+
     await medicalStore.save();
+
+    if (purpose === 'reset') {
+      return res.status(200).json({
+        message: 'OTP verified. You can now reset your password.',
+        resetToken
+      });
+    }
 
     return res.status(200).json({ message: 'Email verified. Your application is now under admin review.' });
   } catch (error) {
     return res.status(500).json({ message: 'Could not verify medical store OTP', error: error.message });
+  }
+};
+
+export const resetMedicalStorePassword = async (req, res) => {
+  try {
+    const { email, resetToken, password, confirmPassword } = req.body;
+
+    if (!email || !resetToken || !password || !confirmPassword) {
+      return res.status(400).json({ message: 'Email, reset token, and passwords are required' });
+    }
+
+    if (password !== confirmPassword) {
+      return res.status(400).json({ message: 'Passwords do not match' });
+    }
+
+    const normalizedEmail = normalizeEmail(email);
+    const medicalStore = await MedicalStore.findOne({ email: normalizedEmail });
+
+    if (!medicalStore) {
+      return res.status(404).json({ message: 'Medical store not found' });
+    }
+
+    if (!medicalStore.resetPasswordTokenHash || !medicalStore.resetPasswordTokenExpiresAt) {
+      return res.status(400).json({ message: 'Reset session has expired. Please request a new code.' });
+    }
+
+    if (medicalStore.resetPasswordTokenExpiresAt.getTime() < Date.now()) {
+      medicalStore.resetPasswordTokenHash = null;
+      medicalStore.resetPasswordTokenExpiresAt = null;
+      await medicalStore.save();
+      return res.status(400).json({ message: 'Reset session has expired. Please request a new code.' });
+    }
+
+    const incomingTokenHash = hashOtp(resetToken);
+
+    if (incomingTokenHash !== medicalStore.resetPasswordTokenHash) {
+      return res.status(400).json({ message: 'Invalid reset session. Please verify OTP again.' });
+    }
+
+    medicalStore.password = password;
+    medicalStore.resetPasswordTokenHash = null;
+    medicalStore.resetPasswordTokenExpiresAt = null;
+    await medicalStore.save();
+
+    return res.status(200).json({ message: 'Password reset successfully. Please sign in.' });
+  } catch (error) {
+    return res.status(500).json({ message: 'Could not reset password', error: error.message });
   }
 };
 

@@ -17,7 +17,7 @@ const DEFAULT_CAMPAIGN_PLANS = [
 
 const getPrimaryClientUrl = () => {
   const configuredOrigins = String(process.env.CLIENT_ORIGIN || '').split(',').map((origin) => origin.trim()).filter(Boolean);
-  return configuredOrigins[0] || 'http://localhost:5173';
+  return configuredOrigins[0] || 'https://simple-a-fyp.vercel.app';
 };
 
 const toDateTimestamp = (dateValue) => {

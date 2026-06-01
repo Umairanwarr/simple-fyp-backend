@@ -8,6 +8,7 @@ import {
 import {
   loginClinic,
   registerClinic,
+  resetClinicPassword,
   sendClinicLoginOtp,
   sendClinicVerificationOtp,
   updateClinicAvatar,
@@ -73,6 +74,7 @@ router.post('/register', handleClinicPermitUpload, registerClinic);
 router.post('/send-otp', sendClinicVerificationOtp);
 router.post('/send-login-otp', sendClinicLoginOtp);
 router.post('/verify-otp', verifyClinicOtp);
+router.post('/reset-password', resetClinicPassword);
 router.post('/login', loginClinic);
 router.patch('/avatar', requireRoleAuth(['clinic']), handleAvatarUpload, updateClinicAvatar);
 router.get('/profile', requireRoleAuth(['clinic']), getClinicProfile);

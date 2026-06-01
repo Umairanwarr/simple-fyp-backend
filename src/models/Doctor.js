@@ -164,6 +164,14 @@ const doctorSchema = new mongoose.Schema(
       type: Date,
       default: null
     },
+    resetPasswordTokenHash: {
+      type: String,
+      default: null
+    },
+    resetPasswordTokenExpiresAt: {
+      type: Date,
+      default: null
+    },
     notificationsSeenAt: {
       type: Date,
       default: null

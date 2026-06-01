@@ -240,6 +240,11 @@ const clinicDoctorAppointmentSchema = new mongoose.Schema(
       type: Date,
       default: null
     },
+    reminderSentAt: {
+      type: Date,
+      default: null,
+      index: true
+    },
     reviewSkipConfirmed: {
       type: Boolean,
       default: false

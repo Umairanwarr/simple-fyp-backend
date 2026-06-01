@@ -45,7 +45,7 @@ const getPrimaryClientUrl = () => {
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
-  return configuredOrigins[0] || 'http://localhost:5173';
+  return configuredOrigins[0] || 'https://simple-a-fyp.vercel.app';
 };
 
 const formatPlanLabel = (planValue) => {
@@ -316,4 +316,3 @@ export const cancelClinicSubscription = async (req, res) => {
     return res.status(500).json({ message: 'Could not cancel subscription', error: error.message });
   }
 };
-

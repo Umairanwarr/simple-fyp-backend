@@ -21,6 +21,7 @@ import {
   loginDoctor,
   markDoctorNotificationsAsRead,
   registerDoctor,
+  resetDoctorPassword,
   rescheduleDoctorUpcomingAppointment,
   sendDoctorLoginOtp,
   sendDoctorVerificationOtp,
@@ -51,6 +52,7 @@ router.post('/register', handleDoctorLicenseUpload, registerDoctor);
 router.post('/send-otp', sendDoctorVerificationOtp);
 router.post('/send-login-otp', sendDoctorLoginOtp);
 router.post('/verify-otp', verifyDoctorOtp);
+router.post('/reset-password', resetDoctorPassword);
 router.post('/login', loginDoctor);
 router.get('/analytics', requireRoleAuth(['doctor']), getDoctorAnalytics);
 router.get('/notifications', requireRoleAuth(['doctor']), getDoctorNotifications);

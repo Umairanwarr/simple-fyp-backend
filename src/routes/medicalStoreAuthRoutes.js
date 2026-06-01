@@ -13,6 +13,7 @@ import {
   getMedicalStoreProfile, 
   loginMedicalStore,
   registerMedicalStore,
+  resetMedicalStorePassword,
   sendMedicalStoreLoginOtp,
   sendMedicalStoreVerificationOtp,
   updateMedicalStoreAvatar,
@@ -44,6 +45,7 @@ router.post('/register', handleMedicalStoreLicenseUpload, registerMedicalStore);
 router.post('/send-otp', sendMedicalStoreVerificationOtp);
 router.post('/send-login-otp', sendMedicalStoreLoginOtp);
 router.post('/verify-otp', verifyMedicalStoreOtp);
+router.post('/reset-password', resetMedicalStorePassword);
 router.post('/login', loginMedicalStore);
 router.get('/profile', requireRoleAuth(['medical-store']), getMedicalStoreProfile);
 router.patch('/profile', requireRoleAuth(['medical-store']), updateMedicalStoreProfile);

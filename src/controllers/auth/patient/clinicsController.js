@@ -782,6 +782,7 @@ export const bookClinicDoctorAppointment = async (req, res) => {
       patientId: patient?._id || null,
       patientName: computedPatientName,
       patientPhone: computedPatientPhone,
+      patientEmail: String(patient?.email || '').trim().toLowerCase(),
       bookingReason: normalizedBookingReason,
       appointmentDate: slot.date,
       fromTime: slot.fromTime,

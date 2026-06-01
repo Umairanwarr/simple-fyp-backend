@@ -258,6 +258,11 @@ const appointmentSchema = new mongoose.Schema(
     paidAt: {
       type: Date,
       default: null
+    },
+    reminderSentAt: {
+      type: Date,
+      default: null,
+      index: true
     }
   },
   {

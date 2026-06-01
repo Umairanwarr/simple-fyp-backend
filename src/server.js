@@ -28,6 +28,7 @@ import { Clinic } from './models/Clinic.js';
 import { sendNewChatMessageEmail } from './services/mailService.js';
 import { hasActiveChatSession } from './routes/chatRoutes.js';
 import { encryptChatPayload } from './utils/chatCrypto.js';
+import { startAppointmentReminderScheduler } from './services/appointmentReminderService.js';
 
 const currentFilePath = fileURLToPath(import.meta.url);
 const srcDirectory = path.dirname(currentFilePath);
@@ -42,9 +43,14 @@ if (!process.env.STRIPE_SECRET_KEY) {
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-const allowedOrigins = process.env.CLIENT_ORIGIN 
-  ? process.env.CLIENT_ORIGIN.split(',').map(o => o.trim())
-  : ['http://localhost:5173'];
+const DEFAULT_CLIENT_ORIGINS = [
+  'http://localhost:5173',
+  'https://simple-a-fyp.vercel.app'
+];
+
+const allowedOrigins = process.env.CLIENT_ORIGIN
+  ? process.env.CLIENT_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)
+  : DEFAULT_CLIENT_ORIGINS;
 
 app.use(
   cors({
@@ -73,15 +79,13 @@ const startServer = async () => {
 
   const server = http.createServer(app);
 
-  const allowedOrigins = process.env.CLIENT_ORIGIN
-    ? process.env.CLIENT_ORIGIN.split(',').map((o) => o.trim())
-    : ['http://localhost:5173'];
-
   const io = new IOServer(server, {
     cors: {
       origin: allowedOrigins
     }
   });
+
+  startAppointmentReminderScheduler(io);
 
   const ROLE_TO_MODEL = {
     doctor: 'Doctor',
