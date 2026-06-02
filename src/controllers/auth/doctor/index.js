@@ -7,6 +7,5 @@ export * from './notificationsController.js';
 export * from './profileController.js';
 export * from './reviewsController.js';
 export * from './scheduleController.js';
-export * from './subscriptionController.js';
 export * from './prescriptionsController.js';
 export * from './withdrawController.js';

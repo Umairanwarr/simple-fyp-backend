@@ -1,33 +1,33 @@
 import mongoose from 'mongoose';
 import express from 'express';
-import StoreChatMessage from '../models/StoreChatMessage.js';
+import ClinicChatMessage from '../models/ClinicChatMessage.js';
 import { requireRoleAuth } from '../middlewares/auth/requireRoleAuth.js';
-import { MedicalStore } from '../models/MedicalStore.js';
+import { Clinic } from '../models/Clinic.js';
 import { Patient } from '../models/Patient.js';
 import { sendNewChatMessageEmail } from '../services/mailService.js';
 import { decryptChatMessageRecord, encryptChatPayload } from '../utils/chatCrypto.js';
 
 const router = express.Router();
 
-const getStorePartnerInfo = async (id, modelName) => {
+const getClinicPartnerInfo = async (id, modelName) => {
   try {
     if (!id) return { name: '', avatarUrl: '' };
 
-    if (modelName === 'MedicalStore') {
-      const store = await MedicalStore.findById(id).lean();
-      if (!store) return { name: '', avatarUrl: '' };
+    if (modelName === 'Clinic') {
+      const clinic = await Clinic.findById(id).lean();
+      if (!clinic) return { name: '', avatarUrl: '' };
       return {
-        name: String(store.name || ''),
-        avatarUrl: String(store.avatarDocument?.url || '')
+        name: String(clinic.name || ''),
+        avatarUrl: String(clinic.avatarDocument?.url || '')
       };
     }
 
     if (modelName === 'Patient') {
-      const p = await Patient.findById(id).lean();
-      if (!p) return { name: '', avatarUrl: '' };
+      const patient = await Patient.findById(id).lean();
+      if (!patient) return { name: '', avatarUrl: '' };
       return {
-        name: `${String(p.firstName || '')} ${String(p.lastName || '')}`.trim(),
-        avatarUrl: String(p.avatarDocument?.url || '')
+        name: `${String(patient.firstName || '')} ${String(patient.lastName || '')}`.trim(),
+        avatarUrl: String(patient.avatarDocument?.url || '')
       };
     }
 
@@ -37,18 +37,17 @@ const getStorePartnerInfo = async (id, modelName) => {
   }
 };
 
-// Get partner info by ID
 router.get('/partner/:partnerId', requireRoleAuth(), async (req, res) => {
   try {
     const partnerId = String(req.params.partnerId || '').trim();
     if (!partnerId) return res.status(400).json({ message: 'Missing partnerId' });
 
-    const store = await MedicalStore.findById(partnerId).select('name avatarDocument').lean();
-    if (store) {
+    const clinic = await Clinic.findById(partnerId).select('name avatarDocument').lean();
+    if (clinic) {
       return res.json({
         partnerId,
-        partnerName: String(store.name || '').trim(),
-        partnerAvatar: String(store.avatarDocument?.url || '').trim()
+        partnerName: String(clinic.name || '').trim(),
+        partnerAvatar: String(clinic.avatarDocument?.url || '').trim()
       });
     }
 
@@ -68,7 +67,6 @@ router.get('/partner/:partnerId', requireRoleAuth(), async (req, res) => {
   }
 });
 
-// Get messages between two users
 router.get('/messages/:otherUserId', requireRoleAuth(), async (req, res) => {
   try {
     const userId = String(req.user.id || '').trim();
@@ -76,12 +74,12 @@ router.get('/messages/:otherUserId', requireRoleAuth(), async (req, res) => {
 
     if (!userId || !otherId) return res.status(400).json({ message: 'Missing user id' });
 
-    await StoreChatMessage.updateMany(
+    await ClinicChatMessage.updateMany(
       { to: new mongoose.Types.ObjectId(userId), from: new mongoose.Types.ObjectId(otherId), readAt: null },
       { $set: { readAt: new Date() } }
     );
 
-    const messages = await StoreChatMessage.find({
+    const messages = await ClinicChatMessage.find({
       $or: [
         { from: new mongoose.Types.ObjectId(userId), to: new mongoose.Types.ObjectId(otherId) },
         { from: new mongoose.Types.ObjectId(otherId), to: new mongoose.Types.ObjectId(userId) }
@@ -96,12 +94,11 @@ router.get('/messages/:otherUserId', requireRoleAuth(), async (req, res) => {
   }
 });
 
-// Get conversations list
 router.get('/conversations', requireRoleAuth(), async (req, res) => {
   try {
     const userId = new mongoose.Types.ObjectId(String(req.user.id || '').trim());
 
-    const agg = await StoreChatMessage.aggregate([
+    const agg = await ClinicChatMessage.aggregate([
       { $match: { $or: [{ from: userId }, { to: userId }] } },
       { $sort: { createdAt: -1 } },
       {
@@ -122,10 +119,9 @@ router.get('/conversations', requireRoleAuth(), async (req, res) => {
       const last = row.lastMessage || {};
       const lastFrom = last.from ? String(last.from) : '';
       const partnerModel = lastFrom === String(userId) ? last.toModel : last.fromModel;
+      const partnerInfo = await getClinicPartnerInfo(partnerId, partnerModel);
 
-      const partnerInfo = await getStorePartnerInfo(partnerId, partnerModel);
-
-      const unreadCount = await StoreChatMessage.countDocuments({
+      const unreadCount = await ClinicChatMessage.countDocuments({
         from: new mongoose.Types.ObjectId(partnerId),
         to: new mongoose.Types.ObjectId(userId),
         readAt: null
@@ -147,13 +143,12 @@ router.get('/conversations', requireRoleAuth(), async (req, res) => {
   }
 });
 
-// Search stores (for patients to start a new chat)
-router.get('/search-stores', requireRoleAuth(), async (req, res) => {
+router.get('/search-clinics', requireRoleAuth(), async (req, res) => {
   try {
     const q = String(req.query.q || '').trim();
-    if (!q) return res.json({ stores: [] });
+    if (!q) return res.json({ clinics: [] });
 
-    const stores = await MedicalStore.find({
+    const clinics = await Clinic.find({
       applicationStatus: 'approved',
       emailVerified: true,
       name: { $regex: q, $options: 'i' }
@@ -163,19 +158,18 @@ router.get('/search-stores', requireRoleAuth(), async (req, res) => {
       .lean();
 
     return res.json({
-      stores: stores.map(s => ({
-        id: String(s._id),
-        name: String(s.name || ''),
-        avatarUrl: String(s.avatarDocument?.url || ''),
-        address: String(s.address || '')
+      clinics: clinics.map((clinic) => ({
+        id: String(clinic._id),
+        name: String(clinic.name || ''),
+        avatarUrl: String(clinic.avatarDocument?.url || ''),
+        address: String(clinic.address || '')
       }))
     });
   } catch (error) {
-    return res.status(500).json({ message: error.message || 'Could not search stores' });
+    return res.status(500).json({ message: error.message || 'Could not search clinics' });
   }
 });
 
-// Send message (REST fallback)
 router.post('/messages', requireRoleAuth(), async (req, res) => {
   try {
     const userId = String(req.user.id || '').trim();
@@ -190,29 +184,28 @@ router.post('/messages', requireRoleAuth(), async (req, res) => {
 
     const ROLE_TO_MODEL = {
       patient: 'Patient',
-      'medical-store': 'MedicalStore'
+      clinic: 'Clinic'
     };
 
     const fromModel = ROLE_TO_MODEL[role] || 'Patient';
 
-    // Stores can only reply — not initiate
-    if (fromModel === 'MedicalStore') {
-      const existingThread = await StoreChatMessage.findOne({
+    if (fromModel === 'Clinic') {
+      const existingThread = await ClinicChatMessage.findOne({
         $or: [
           { from: new mongoose.Types.ObjectId(to), to: new mongoose.Types.ObjectId(userId) },
           { from: new mongoose.Types.ObjectId(userId), to: new mongoose.Types.ObjectId(to) }
         ]
       });
       if (!existingThread) {
-        return res.status(403).json({ message: 'Stores cannot initiate chats. Wait for a patient to message you first.' });
+        return res.status(403).json({ message: 'Clinics cannot initiate chats. Wait for a patient to message you first.' });
       }
     }
 
-    const toModel = fromModel === 'MedicalStore' ? 'Patient' : 'MedicalStore';
+    const toModel = fromModel === 'Clinic' ? 'Patient' : 'Clinic';
 
     const encryptedPayload = encryptChatPayload({ content, attachment: attachment || {} });
 
-    const message = await StoreChatMessage.create({
+    const message = await ClinicChatMessage.create({
       from: new mongoose.Types.ObjectId(userId),
       to: new mongoose.Types.ObjectId(to),
       fromModel,
@@ -221,29 +214,28 @@ router.post('/messages', requireRoleAuth(), async (req, res) => {
       attachment: encryptedPayload.attachment
     });
 
-    // Fire-and-forget email notification
     try {
-      const SenderModel = fromModel === 'MedicalStore' ? MedicalStore : Patient;
-      const RecipientModel = toModel === 'MedicalStore' ? MedicalStore : Patient;
+      const SenderModel = fromModel === 'Clinic' ? Clinic : Patient;
+      const RecipientModel = toModel === 'Clinic' ? Clinic : Patient;
 
       const [senderDoc, recipientDoc] = await Promise.all([
-        SenderModel.findById(userId).select(fromModel === 'MedicalStore' ? 'name' : 'firstName lastName').lean(),
-        RecipientModel.findById(to).select(toModel === 'MedicalStore' ? 'email name' : 'email firstName lastName').lean()
+        SenderModel.findById(userId).select(fromModel === 'Clinic' ? 'name' : 'firstName lastName').lean(),
+        RecipientModel.findById(to).select(toModel === 'Clinic' ? 'email name' : 'email firstName lastName').lean()
       ]);
 
       if (senderDoc && recipientDoc && recipientDoc.email) {
-        const senderName = fromModel === 'MedicalStore' ? senderDoc.name : `${senderDoc.firstName} ${senderDoc.lastName}`;
-        const recipientName = toModel === 'MedicalStore' ? recipientDoc.name : `${recipientDoc.firstName} ${recipientDoc.lastName}`;
+        const senderName = fromModel === 'Clinic' ? senderDoc.name : `${senderDoc.firstName} ${senderDoc.lastName}`;
+        const recipientName = toModel === 'Clinic' ? recipientDoc.name : `${recipientDoc.firstName} ${recipientDoc.lastName}`;
         sendNewChatMessageEmail({
           to: recipientDoc.email,
           recipientName,
           senderName,
-          senderRole: fromModel === 'MedicalStore' ? 'medical store' : 'patient',
+          senderRole: fromModel === 'Clinic' ? 'clinic' : 'patient',
           messagePreview: content.length > 50 ? content.substring(0, 47) + '...' : content
-        }).catch(err => console.error('Store chat email error:', err));
+        }).catch((err) => console.error('Clinic chat email error:', err));
       }
     } catch (emailErr) {
-      console.error('Failed to send store chat email:', emailErr);
+      console.error('Failed to send clinic chat email:', emailErr);
     }
 
     return res.status(201).json({ message: decryptChatMessageRecord(message) });

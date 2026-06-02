@@ -187,3 +187,70 @@ export const registerClinicDoctor = async (req, res) => {
     return res.status(500).json({ message: 'Could not register clinic doctor', error: error.message });
   }
 };
+
+export const updateClinicDoctor = async (req, res) => {
+  let uploadedAvatar = null;
+
+  try {
+    const { doctorId } = req.params;
+    const fullName = String(req.body?.fullName || req.body?.name || '').trim();
+    const specialization = String(req.body?.specialization || '').trim();
+
+    if (!fullName || !specialization) {
+      return res.status(400).json({ message: 'Doctor name and specialization are required' });
+    }
+
+    const doctor = await ClinicDoctor.findOne({ _id: doctorId, clinicId: req.user?.id });
+    if (!doctor) {
+      return res.status(404).json({ message: 'Doctor not found' });
+    }
+
+    if (req.file) {
+      uploadedAvatar = await uploadUserAvatarToCloudinary(req.file, 'clinic-doctors');
+      if (doctor.avatarDocument?.publicId) {
+        await deleteFromCloudinary(doctor.avatarDocument.publicId, doctor.avatarDocument.resourceType || 'image').catch(() => {});
+      }
+      doctor.avatarDocument = uploadedAvatar;
+    }
+
+    doctor.fullName = fullName;
+    doctor.specialization = specialization;
+    await doctor.save();
+
+    return res.status(200).json({
+      message: 'Doctor updated successfully',
+      doctor: mapClinicDoctorPayload(doctor.toObject(), null)
+    });
+  } catch (error) {
+    if (uploadedAvatar?.publicId) {
+      await deleteFromCloudinary(uploadedAvatar.publicId, uploadedAvatar.resourceType || 'image').catch(() => {});
+    }
+    return res.status(500).json({ message: 'Could not update clinic doctor', error: error.message });
+  }
+};
+
+export const deleteClinicDoctor = async (req, res) => {
+  try {
+    const { doctorId } = req.params;
+    const doctor = await ClinicDoctor.findOne({ _id: doctorId, clinicId: req.user?.id });
+
+    if (!doctor) {
+      return res.status(404).json({ message: 'Doctor not found' });
+    }
+
+    if (doctor.avatarDocument?.publicId) {
+      await deleteFromCloudinary(doctor.avatarDocument.publicId, doctor.avatarDocument.resourceType || 'image').catch(() => {});
+    }
+
+    await ClinicDoctor.deleteOne({ _id: doctor._id });
+    await ClinicDoctorAppointment.deleteMany({
+      clinicId: req.user?.id,
+      doctorId: doctor._id,
+      bookingStatus: { $in: ['pending', 'confirmed'] }
+    });
+
+    return res.status(200).json({ message: 'Doctor deleted successfully' });
+  } catch (error) {
+    return res.status(500).json({ message: 'Could not delete clinic doctor', error: error.message });
+  }
+};

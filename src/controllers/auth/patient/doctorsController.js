@@ -4,12 +4,27 @@ import {
   Patient,
   escapeRegex,
   getDoctorAvatarUrl,
+  isAvailabilitySlotExpired,
   mapDoctorForPatientDirectory,
   mapDoctorSlotsByModeForPatientProfile,
   mapFavoriteDoctorIdStrings,
   mongoose
 } from './shared.js';
 import { DoctorMedia } from '../../../models/DoctorMedia.js';
+
+const removeExpiredDoctorSlots = async (doctor) => {
+  if (!doctor || !Array.isArray(doctor.availabilitySlots)) {
+    return;
+  }
+
+  const now = new Date();
+  const activeSlots = doctor.availabilitySlots.filter((slot) => !isAvailabilitySlotExpired(slot, now));
+
+  if (activeSlots.length !== doctor.availabilitySlots.length) {
+    doctor.availabilitySlots = activeSlots;
+    await doctor.save();
+  }
+};
 
 export const getDoctorProfileForPatient = async (req, res) => {
   try {
@@ -32,12 +47,13 @@ export const getDoctorProfileForPatient = async (req, res) => {
       applicationStatus: { $ne: 'declined' },
       emailVerified: true
     })
-      .select('fullName specialization address bio avatarDocument availabilitySlots profileCtr reviews averageRating totalReviews')
-      .lean();
+      .select('fullName specialization address bio avatarDocument availabilitySlots profileCtr reviews averageRating totalReviews');
 
     if (!doctor) {
       return res.status(404).json({ message: 'Doctor not found' });
     }
+
+    await removeExpiredDoctorSlots(doctor);
 
     const now = new Date();
     const visitUpdateResult = await DoctorProfileVisit.updateOne(
@@ -167,5 +183,51 @@ export const searchDoctorsForPatients = async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ message: 'Could not fetch doctors for search', error: error.message });
+  }
+};
+
+export const getExploreSpecialtiesForPatients = async (req, res) => {
+  try {
+    const doctors = await Doctor.find({
+      applicationStatus: { $ne: 'declined' },
+      emailVerified: true
+    })
+      .select('specialization')
+      .lean();
+
+    const specialtyBuckets = new Map();
+
+    doctors.forEach((doctor) => {
+      const rawSpecialty = String(doctor?.specialization || '').trim();
+      if (!rawSpecialty) return;
+
+      const specialtyKey = rawSpecialty.toLowerCase();
+      const existingBucket = specialtyBuckets.get(specialtyKey);
+
+      if (!existingBucket) {
+        specialtyBuckets.set(specialtyKey, {
+          id: rawSpecialty,
+          label: rawSpecialty,
+          doctorCount: 1
+        });
+        return;
+      }
+
+      existingBucket.doctorCount += 1;
+    });
+
+    const specialties = Array.from(specialtyBuckets.values())
+      .sort((firstItem, secondItem) => {
+        if (secondItem.doctorCount !== firstItem.doctorCount) {
+          return secondItem.doctorCount - firstItem.doctorCount;
+        }
+
+        return String(firstItem.label || '').localeCompare(String(secondItem.label || ''));
+      })
+      .slice(0, 40);
+
+    return res.status(200).json({ specialties });
+  } catch (error) {
+    return res.status(500).json({ message: 'Could not fetch specialties for explore', error: error.message });
   }
 };

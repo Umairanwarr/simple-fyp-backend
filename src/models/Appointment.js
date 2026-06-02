@@ -67,6 +67,12 @@ const appointmentSchema = new mongoose.Schema(
         trim: true
       }
     },
+    bookingReason: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 500
+    },
     slotId: {
       type: String,
       required: true,
@@ -136,6 +142,16 @@ const appointmentSchema = new mongoose.Schema(
       default: null
     },
     cancelledByRole: {
+      type: String,
+      default: '',
+      trim: true,
+      lowercase: true
+    },
+    consultationEndedAt: {
+      type: Date,
+      default: null
+    },
+    consultationEndedByRole: {
       type: String,
       default: '',
       trim: true,
@@ -242,6 +258,11 @@ const appointmentSchema = new mongoose.Schema(
     paidAt: {
       type: Date,
       default: null
+    },
+    reminderSentAt: {
+      type: Date,
+      default: null,
+      index: true
     }
   },
   {

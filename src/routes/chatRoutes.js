@@ -8,6 +8,7 @@ import { Patient } from '../models/Patient.js';
 import { Appointment } from '../models/Appointment.js';
 import { sendNewChatMessageEmail } from '../services/mailService.js';
 import { uploadChatMediaToCloudinary } from '../services/cloudinaryService.js';
+import { decryptChatMessageRecord, encryptChatPayload } from '../utils/chatCrypto.js';
 
 // Multer for chat media (images + videos, max 25MB)
 const chatMediaStorage = multer.memoryStorage();
@@ -27,6 +28,34 @@ const parseAppointmentDateTimeChat = (date, time) => {
   return parsedDate;
 };
 
+const isAppointmentConsultationEnded = (appointmentRecord, now = new Date()) => {
+  const consultationEndedAtTimestamp = appointmentRecord?.consultationEndedAt
+    ? new Date(appointmentRecord.consultationEndedAt).getTime()
+    : 0;
+
+  if (!Number.isFinite(consultationEndedAtTimestamp) || consultationEndedAtTimestamp <= 0) {
+    return false;
+  }
+
+  return consultationEndedAtTimestamp <= now.getTime();
+};
+
+const isAppointmentChatWindowOpen = (appointmentRecord, now = new Date()) => {
+  if (isAppointmentConsultationEnded(appointmentRecord, now)) {
+    return false;
+  }
+
+  const start = parseAppointmentDateTimeChat(appointmentRecord?.appointmentDate, appointmentRecord?.fromTime);
+  const end = parseAppointmentDateTimeChat(appointmentRecord?.appointmentDate, appointmentRecord?.toTime);
+
+  if (!start || !end) {
+    return false;
+  }
+
+  const nowTimestamp = now.getTime();
+  return nowTimestamp >= start.getTime() && nowTimestamp < end.getTime();
+};
+
 export const hasActiveChatSession = async (user1Id, user2Id) => {
   const appointments = await Appointment.find({
     $or: [
@@ -40,9 +69,7 @@ export const hasActiveChatSession = async (user1Id, user2Id) => {
   const now = new Date();
   
   for (const appt of appointments) {
-    const end = parseAppointmentDateTimeChat(appt.appointmentDate, appt.toTime);
-    // If the appointment's end time hasn't passed, they can chat.
-    if (!end || now.getTime() < end.getTime()) {
+    if (isAppointmentChatWindowOpen(appt, now)) {
       return true;
     }
   }
@@ -149,7 +176,7 @@ router.get('/messages/:otherUserId', requireRoleAuth(), async (req, res) => {
       .sort({ createdAt: 1 })
       .lean();
 
-    return res.json({ messages });
+    return res.json({ messages: messages.map((message) => decryptChatMessageRecord(message)) });
   } catch (error) {
     return res.status(500).json({ message: error.message || 'Could not fetch messages' });
   }
@@ -158,7 +185,14 @@ router.get('/messages/:otherUserId', requireRoleAuth(), async (req, res) => {
 // Conversations list (last message per partner)
 router.get('/conversations', requireRoleAuth(), async (req, res) => {
   try {
-    const userId = new mongoose.Types.ObjectId(String(req.user.id || '').trim());
+    const userIdString = String(req.user.id || '').trim();
+    const role = String(req.user.role || '').trim().toLowerCase();
+
+    if (!mongoose.Types.ObjectId.isValid(userIdString)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    const userId = new mongoose.Types.ObjectId(userIdString);
 
     const agg = await ChatMessage.aggregate([
       { $match: { $or: [{ from: userId }, { to: userId }] } },
@@ -174,10 +208,14 @@ router.get('/conversations', requireRoleAuth(), async (req, res) => {
       { $replaceRoot: { newRoot: { partnerId: '$_id', lastMessage: '$lastMessage' } } }
     ]).allowDiskUse(true);
 
-    const results = [];
+    const conversationMap = new Map();
 
     for (const row of agg) {
       const partnerId = String(row.partnerId || '').trim();
+      if (!partnerId || !mongoose.Types.ObjectId.isValid(partnerId)) {
+        continue;
+      }
+
       const last = row.lastMessage || {};
       const lastFrom = last.from ? String(last.from) : '';
       const partnerModel = lastFrom === String(userId) ? last.toModel : last.fromModel;
@@ -194,16 +232,97 @@ router.get('/conversations', requireRoleAuth(), async (req, res) => {
         readAt: null
       });
 
-      results.push({
+      conversationMap.set(partnerId, {
         partnerId,
         partnerModel,
         partnerName: partnerInfo.name,
         partnerAvatar: partnerInfo.avatarUrl,
         partnerPlan: partnerInfo.plan,
-        lastMessage: last,
+        lastMessage: decryptChatMessageRecord(last),
         unreadCount
       });
     }
+
+    if (role === 'patient') {
+      const activeAppointments = await Appointment.find({
+        patientId: userId,
+        bookingStatus: 'confirmed',
+        paymentStatus: 'succeeded'
+      })
+        .select('doctorId doctorName doctorAvatarUrl appointmentDate fromTime toTime consultationEndedAt')
+        .sort({ appointmentDate: 1, toTime: 1 })
+        .lean();
+
+      const now = new Date();
+      const activeDoctorConversationMap = new Map();
+
+      for (const appointment of activeAppointments) {
+        if (!isAppointmentChatWindowOpen(appointment, now)) {
+          continue;
+        }
+
+        const doctorId = String(appointment?.doctorId || '').trim();
+        if (!doctorId || !mongoose.Types.ObjectId.isValid(doctorId)) {
+          continue;
+        }
+        if (conversationMap.has(doctorId) || activeDoctorConversationMap.has(doctorId)) {
+          continue;
+        }
+
+        activeDoctorConversationMap.set(doctorId, {
+          partnerId: doctorId,
+          partnerModel: 'Doctor',
+          partnerName: String(appointment?.doctorName || '').trim(),
+          partnerAvatar: String(appointment?.doctorAvatarUrl || '').trim(),
+          partnerPlan: '',
+          lastMessage: null,
+          unreadCount: 0
+        });
+      }
+
+      if (activeDoctorConversationMap.size > 0) {
+        const doctorIds = Array.from(activeDoctorConversationMap.keys());
+        const doctors = await Doctor.find({
+          _id: { $in: doctorIds.map((id) => new mongoose.Types.ObjectId(id)) }
+        })
+          .select('fullName avatarDocument currentPlan')
+          .lean();
+
+        const doctorMap = new Map(
+          doctors.map((doctor) => [String(doctor?._id || '').trim(), doctor])
+        );
+
+        for (const [doctorId, conversation] of activeDoctorConversationMap.entries()) {
+          const doctor = doctorMap.get(doctorId);
+          if (doctor) {
+            if (!conversation.partnerName) {
+              conversation.partnerName = String(doctor.fullName || '').trim();
+            }
+            if (!conversation.partnerAvatar) {
+              conversation.partnerAvatar = String(doctor.avatarDocument?.url || '').trim();
+            }
+            conversation.partnerPlan = String(doctor.currentPlan || 'platinum').trim();
+          }
+
+          conversationMap.set(doctorId, conversation);
+        }
+      }
+    }
+
+    const results = Array.from(conversationMap.values()).sort((firstConversation, secondConversation) => {
+      const firstTimestamp = firstConversation?.lastMessage?.createdAt
+        ? new Date(firstConversation.lastMessage.createdAt).getTime()
+        : 0;
+      const secondTimestamp = secondConversation?.lastMessage?.createdAt
+        ? new Date(secondConversation.lastMessage.createdAt).getTime()
+        : 0;
+
+      if (firstTimestamp !== secondTimestamp) {
+        return secondTimestamp - firstTimestamp;
+      }
+
+      return String(firstConversation?.partnerName || '').localeCompare(String(secondConversation?.partnerName || ''));
+    });
 
     return res.json({ conversations: results });
   } catch (error) {
@@ -225,20 +344,22 @@ router.post('/messages', requireRoleAuth(), async (req, res) => {
     }
 
     if (!(await hasActiveChatSession(userId, to))) {
-      return res.status(403).json({ message: 'Cannot chat without an active or upcoming appointment' });
+      return res.status(403).json({ message: 'Cannot chat unless the appointment is ongoing' });
     }
 
     const fromModel = ROLE_TO_MODEL[role] || 'Patient';
     // guess partner model as the inverse (if sending patient->doctor etc) - caller should set proper models
     const toModel = fromModel === 'Doctor' ? 'Patient' : 'Doctor';
 
+    const encryptedPayload = encryptChatPayload({ content, attachment: attachment || {} });
+
     const message = await ChatMessage.create({
       from: new mongoose.Types.ObjectId(userId),
       to: new mongoose.Types.ObjectId(to),
       fromModel,
       toModel,
-      content,
-      attachment: attachment || {}
+      content: encryptedPayload.content,
+      attachment: encryptedPayload.attachment
     });
 
     try {
@@ -265,7 +386,7 @@ router.post('/messages', requireRoleAuth(), async (req, res) => {
       console.error('Failed to prepare chat email notification:', emailErr);
     }
 
-    return res.status(201).json({ message });
+    return res.status(201).json({ message: decryptChatMessageRecord(message) });
   } catch (error) {
     return res.status(500).json({ message: error.message || 'Could not send message' });
   }

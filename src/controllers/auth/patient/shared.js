@@ -15,6 +15,7 @@ import {
 import { STRIPE_CURRENCY, getStripeClient } from '../../../services/stripeService.js';
 import { generateOtp, getOtpExpiryDate, hashOtp } from '../../../utils/otp.js';
 import { generateAuthToken } from '../../../utils/token.js';
+import { getAppointmentLifecycleStatusByTimeZone, isSlotExpiredByTimeZone } from '../../../utils/slotExpiry.js';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
 
@@ -168,6 +169,10 @@ export const parseAppointmentDateTime = ({ date, time }) => {
   return parsedDate;
 };
 
+export const isAvailabilitySlotExpired = (slot, now = new Date()) => {
+  return isSlotExpiredByTimeZone(slot, now);
+};
+
 export const getAppointmentLifecycleStatus = (appointmentRecord, now = new Date()) => {
   const bookingStatus = String(appointmentRecord?.bookingStatus || '').trim();
   const paymentStatus = String(appointmentRecord?.paymentStatus || '').trim();
@@ -180,25 +185,20 @@ export const getAppointmentLifecycleStatus = (appointmentRecord, now = new Date(
     return 'pending';
   }
 
-  const appointmentEndDateTime = parseAppointmentDateTime({
-    date: appointmentRecord?.appointmentDate,
-    time: appointmentRecord?.toTime
-  });
+  const consultationEndedAtTimestamp = appointmentRecord?.consultationEndedAt
+    ? new Date(appointmentRecord.consultationEndedAt).getTime()
+    : 0;
 
-  const appointmentStartDateTime = parseAppointmentDateTime({
-    date: appointmentRecord?.appointmentDate,
-    time: appointmentRecord?.fromTime
-  });
-
-  if (appointmentEndDateTime && appointmentEndDateTime.getTime() <= now.getTime()) {
+  if (Number.isFinite(consultationEndedAtTimestamp) && consultationEndedAtTimestamp > 0 && consultationEndedAtTimestamp <= now.getTime()) {
     return 'completed';
   }
 
-  if (appointmentStartDateTime && appointmentEndDateTime && now.getTime() >= appointmentStartDateTime.getTime() && now.getTime() < appointmentEndDateTime.getTime()) {
-    return 'ongoing';
-  }
-
-  return 'upcoming';
+  return getAppointmentLifecycleStatusByTimeZone({
+    appointmentDate: appointmentRecord?.appointmentDate,
+    fromTime: appointmentRecord?.fromTime,
+    toTime: appointmentRecord?.toTime,
+    now
+  });
 };
 
 const getAppointmentStatusLabel = (lifecycleStatus) => {
@@ -431,7 +431,7 @@ export const mapAppointmentForPatient = (appointmentRecord, { lifecycleStatus = 
     reviewComment: String(appointmentRecord?.reviewComment || '').trim(),
     bookedAt: appointmentRecord?.paidAt || appointmentRecord?.createdAt || null,
     cancelledAt: appointmentRecord?.cancelledAt || null,
-    completedAt: parseAppointmentDateTime({
+    completedAt: appointmentRecord?.consultationEndedAt || parseAppointmentDateTime({
       date: appointmentRecord?.appointmentDate,
       time: appointmentRecord?.toTime
     }),
@@ -452,15 +452,19 @@ export const getSlotDateTime = (slot) => {
 };
 
 export const getDoctorNextAvailabilityLabel = (availabilitySlots) => {
+  const now = new Date();
   const slotDateTimes = Array.isArray(availabilitySlots)
-    ? availabilitySlots.map((slot) => getSlotDateTime(slot)).filter(Boolean).sort((a, b) => a.getTime() - b.getTime())
+    ? availabilitySlots
+      .filter((slot) => !isAvailabilitySlotExpired(slot, now))
+      .map((slot) => getSlotDateTime(slot))
+      .filter(Boolean)
+      .sort((a, b) => a.getTime() - b.getTime())
     : [];
 
   if (slotDateTimes.length === 0) {
     return 'Check doctor schedule';
   }
 
-  const now = new Date();
   const nextSlot = slotDateTimes.find((slotDate) => slotDate.getTime() >= now.getTime()) || slotDateTimes[0];
   const todayKey = now.toDateString();
   const tomorrow = new Date(now);
@@ -506,9 +510,17 @@ export const mapDoctorForPatientDirectory = (doctorRecord) => {
   };
 };
 
+const isStoreDiamondPlanActive = (storeRecord) => {
+  const plan = String(storeRecord?.currentPlan || '').trim().toLowerCase();
+  const status = String(storeRecord?.subscriptionStatus || '').trim().toLowerCase();
+  const expiryTimestamp = storeRecord?.planExpiresAt ? new Date(storeRecord.planExpiresAt).getTime() : 0;
+  return plan === 'diamond' && status === 'active' && expiryTimestamp > Date.now();
+};
+
 export const mapMedicalStoreForPatientDirectory = (storeRecord) => {
   const averageRating = Number(storeRecord?.averageRating || 0);
   const totalReviews = Math.max(0, Math.trunc(Number(storeRecord?.totalReviews || 0)));
+  const hasDiamondTag = isStoreDiamondPlanActive(storeRecord);
 
   return {
     id: String(storeRecord?._id),
@@ -520,7 +532,9 @@ export const mapMedicalStoreForPatientDirectory = (storeRecord) => {
     location: String(storeRecord?.address || '').trim() || 'Location not provided',
     availability: String(storeRecord?.operatingHours || '').trim() || 'Check hours',
     image: String(storeRecord?.avatarDocument?.url || '').trim() || '/pharmacy-placeholder.svg',
-    type: 'store'
+    type: 'store',
+    isTopStore: hasDiamondTag,
+    hasPrioritySupport: hasDiamondTag
   };
 };
 
@@ -528,10 +542,12 @@ export const mapDoctorSlotsByModeForPatientProfile = (doctorRecord) => {
   const rawSlots = Array.isArray(doctorRecord?.availabilitySlots)
     ? doctorRecord.availabilitySlots
     : [];
+  const now = new Date();
 
   const normalizedSlots = rawSlots
     .map((slot) => {
-      const consultationMode = String(slot?.consultationMode || '').trim().toLowerCase();
+      const rawConsultationMode = String(slot?.consultationMode || '').trim().toLowerCase();
+      const consultationMode = rawConsultationMode === 'video' ? 'online' : rawConsultationMode;
 
       if (!allowedConsultationModes.has(consultationMode)) {
         return null;
@@ -549,6 +565,10 @@ export const mapDoctorSlotsByModeForPatientProfile = (doctorRecord) => {
         : 0;
 
       if (!date || !fromTime || !toTime) {
+        return null;
+      }
+
+      if (isAvailabilitySlotExpired({ date, toTime }, now)) {
         return null;
       }
 
@@ -584,7 +604,7 @@ export const mapDoctorSlotsByModeForPatientProfile = (doctorRecord) => {
 
   return {
     online: normalizedSlots.filter((slot) => slot.consultationMode === 'online'),
-    video: normalizedSlots.filter((slot) => slot.consultationMode === 'video'),
+    video: [],
     offline: normalizedSlots.filter((slot) => slot.consultationMode === 'offline')
   };
 };
@@ -656,7 +676,7 @@ export const fetchPatientFavoriteStores = async (favoriteStoreIds) => {
     applicationStatus: 'approved',
     emailVerified: true
   })
-    .select('name licenseNumber address operatingHours avatarDocument bio')
+    .select('name licenseNumber address operatingHours avatarDocument bio currentPlan subscriptionStatus planExpiresAt')
     .lean();
 
   const storeById = new Map(stores.map((store) => [String(store._id), store]));

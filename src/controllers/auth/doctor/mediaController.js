@@ -51,19 +51,7 @@ const toDateTimestamp = (dateValue) => {
 };
 
 const resolveEffectiveDoctorPlan = (doctorRecord, now = new Date()) => {
-  const normalizedPlan = normalizePlan(doctorRecord?.currentPlan);
-  const normalizedStatus = normalizeSubscriptionStatus(doctorRecord?.subscriptionStatus);
-  const planExpiryTimestamp = toDateTimestamp(doctorRecord?.planExpiresAt);
-
-  if (
-    ['gold', 'diamond'].includes(normalizedPlan)
-    && normalizedStatus === 'active'
-    && planExpiryTimestamp > now.getTime()
-  ) {
-    return normalizedPlan;
-  }
-
-  return 'platinum';
+  return 'diamond';
 };
 
 const getPlanLimits = (planKey) => {
@@ -142,22 +130,6 @@ const isLimitReached = ({ planLimits, mediaType, usage }) => {
 };
 
 const getUpgradeMessage = ({ effectivePlan, mediaType }) => {
-  if (effectivePlan === 'platinum') {
-    if (mediaType === 'video') {
-      return 'Platinum plan does not support video uploads. Upgrade to Gold or Diamond.';
-    }
-
-    return 'Platinum plan allows only 2 images. Upgrade to Gold or Diamond for more uploads.';
-  }
-
-  if (effectivePlan === 'gold') {
-    if (mediaType === 'video') {
-      return 'Gold plan allows only 1 video upload. Upgrade to Diamond for more video uploads.';
-    }
-
-    return 'Gold plan allows only 5 images. Upgrade to Diamond for more image uploads.';
-  }
-
   return 'Upload limit reached for your plan.';
 };
 

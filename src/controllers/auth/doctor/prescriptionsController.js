@@ -1,9 +1,14 @@
-import Prescription from '../../../models/Prescription.js';
+import Prescription, { buildPrescriptionSerialNumber } from '../../../models/Prescription.js';
 import { Appointment } from '../../../models/Appointment.js';
 import { Patient } from '../../../models/Patient.js';
 import { Doctor } from '../../../models/Doctor.js';
 import { uploadPrescriptionToCloudinary, deleteFromCloudinary } from '../../../services/cloudinaryService.js';
 import { sendPrescriptionEmail } from '../../../services/mailService.js';
+
+const withPrescriptionSerialNumber = (prescription) => ({
+  ...prescription,
+  serialNumber: prescription.serialNumber || buildPrescriptionSerialNumber(prescription._id)
+});
 
 export const getDoctorCompletedPatients = async (req, res) => {
   try {
@@ -91,7 +96,7 @@ export const createDoctorPrescription = async (req, res) => {
       }
     })();
 
-    return res.status(201).json({ prescription });
+    return res.status(201).json({ prescription: withPrescriptionSerialNumber(prescription.toObject()) });
   } catch (error) {
     return res.status(500).json({ message: error.message || 'Could not create prescription' });
   }
@@ -105,7 +110,7 @@ export const getDoctorPrescriptions = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    return res.json({ prescriptions });
+    return res.json({ prescriptions: prescriptions.map(withPrescriptionSerialNumber) });
   } catch (error) {
     return res.status(500).json({ message: error.message || 'Could not fetch prescriptions' });
   }

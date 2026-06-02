@@ -164,6 +164,14 @@ const doctorSchema = new mongoose.Schema(
       type: Date,
       default: null
     },
+    resetPasswordTokenHash: {
+      type: String,
+      default: null
+    },
+    resetPasswordTokenExpiresAt: {
+      type: Date,
+      default: null
+    },
     notificationsSeenAt: {
       type: Date,
       default: null
@@ -232,7 +240,7 @@ const doctorSchema = new mongoose.Schema(
     currentPlan: {
       type: String,
       enum: ['platinum', 'gold', 'diamond'],
-      default: 'platinum'
+      default: 'diamond'
     },
     subscriptionStatus: {
       type: String,

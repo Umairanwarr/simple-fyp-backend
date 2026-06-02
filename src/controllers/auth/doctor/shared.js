@@ -14,6 +14,7 @@ import {
 import { STRIPE_CURRENCY, getStripeClient } from '../../../services/stripeService.js';
 import { generateOtp, getOtpExpiryDate, hashOtp } from '../../../utils/otp.js';
 import { generateAuthToken } from '../../../utils/token.js';
+import { getAppointmentLifecycleStatusByTimeZone, isSlotExpiredByTimeZone } from '../../../utils/slotExpiry.js';
 
 export {
   Appointment,
@@ -74,23 +75,6 @@ export const getDoctorMissingProfileFields = (doctorRecord) => {
 };
 
 export const mapDoctorSessionPayload = (doctorRecord) => {
-  const normalizedCurrentPlan = ['platinum', 'gold', 'diamond'].includes(String(doctorRecord?.currentPlan || '').trim().toLowerCase())
-    ? String(doctorRecord.currentPlan).trim().toLowerCase()
-    : 'platinum';
-  const normalizedSubscriptionStatus = ['active', 'cancelled', 'expired'].includes(String(doctorRecord?.subscriptionStatus || '').trim().toLowerCase())
-    ? String(doctorRecord.subscriptionStatus).trim().toLowerCase()
-    : 'active';
-  const parsedPlanExpiryDate = doctorRecord?.planExpiresAt ? new Date(doctorRecord.planExpiresAt) : null;
-  const hasActivePaidPlan = normalizedCurrentPlan !== 'platinum'
-    && normalizedSubscriptionStatus === 'active'
-    && parsedPlanExpiryDate
-    && !Number.isNaN(parsedPlanExpiryDate.getTime())
-    && parsedPlanExpiryDate.getTime() > Date.now();
-  const effectivePlan = hasActivePaidPlan ? normalizedCurrentPlan : 'platinum';
-  const effectiveStatus = effectivePlan === 'platinum'
-    ? (normalizedCurrentPlan === 'platinum' ? 'active' : 'expired')
-    : normalizedSubscriptionStatus;
-
   return {
     id: doctorRecord._id,
     fullName: doctorRecord.fullName,
@@ -105,10 +89,10 @@ export const mapDoctorSessionPayload = (doctorRecord) => {
     applicationStatus: doctorRecord.applicationStatus,
     profileCtr: Math.max(0, Math.trunc(Number(doctorRecord.profileCtr || 0))),
     avatarUrl: getDoctorAvatarUrl(doctorRecord),
-    currentPlan: effectivePlan,
-    subscriptionStatus: effectiveStatus,
+    currentPlan: 'diamond',
+    subscriptionStatus: 'active',
     planActivatedAt: doctorRecord?.planActivatedAt || null,
-    planExpiresAt: effectivePlan === 'platinum' ? null : doctorRecord?.planExpiresAt || null,
+    planExpiresAt: null,
     lastPlanPaymentAt: doctorRecord?.lastPlanPaymentAt || null
   };
 };
@@ -133,10 +117,14 @@ export const mapDoctorProfilePayload = (doctorRecord) => {
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const timePattern = /^([01]\d|2[0-3]):([0-5]\d)$/;
-const allowedConsultationModes = new Set(['online', 'offline', 'video']);
+const allowedConsultationModes = new Set(['online', 'offline']);
 
 export const normalizeConsultationMode = (consultationMode) => {
-  return String(consultationMode || '').trim().toLowerCase();
+  const normalizedMode = String(consultationMode || '').trim().toLowerCase();
+  if (normalizedMode === 'video') {
+    return 'online';
+  }
+  return normalizedMode;
 };
 
 export const normalizePriceInRupees = (priceValue) => {
@@ -180,6 +168,10 @@ export const parseAppointmentDateTime = ({ date, time }) => {
   return parsedDate;
 };
 
+export const isAvailabilitySlotExpired = (slot, now = new Date()) => {
+  return isSlotExpiredByTimeZone(slot, now);
+};
+
 export const isValidCalendarDate = (dateValue) => {
   if (!datePattern.test(dateValue)) {
     return false;
@@ -203,6 +195,8 @@ export const validateAvailabilitySlotPayload = ({
   priceInRupees,
   offlineAddress = ''
 }) => {
+  const now = new Date();
+
   if (!date || !fromTime || !toTime || !consultationMode) {
     return 'Date, from time, to time, and consultation mode are required';
   }
@@ -235,6 +229,10 @@ export const validateAvailabilitySlotPayload = ({
 
   if (normalizedConsultationMode === 'offline' && !normalizeAvailabilityAddress(offlineAddress)) {
     return 'Offline clinic address is required for clinic visit slots';
+  }
+
+  if (isAvailabilitySlotExpired({ date, toTime }, now)) {
+    return 'Availability slot must be in current or future time';
   }
 
   return null;
@@ -321,28 +319,20 @@ export const getDoctorAppointmentLifecycleStatus = (appointmentRecord, now = new
     return 'pending';
   }
 
-  const appointmentStart = parseAppointmentDateTime({
-    date: appointmentRecord?.appointmentDate,
-    time: appointmentRecord?.fromTime
-  });
-  const appointmentEnd = parseAppointmentDateTime({
-    date: appointmentRecord?.appointmentDate,
-    time: appointmentRecord?.toTime
-  });
+  const consultationEndedAtTimestamp = appointmentRecord?.consultationEndedAt
+    ? new Date(appointmentRecord.consultationEndedAt).getTime()
+    : 0;
 
-  if (appointmentStart && now.getTime() < appointmentStart.getTime()) {
-    return 'upcoming';
-  }
-
-  if (appointmentStart && appointmentEnd && now.getTime() >= appointmentStart.getTime() && now.getTime() < appointmentEnd.getTime()) {
-    return 'ongoing';
-  }
-
-  if (appointmentEnd && now.getTime() >= appointmentEnd.getTime()) {
+  if (Number.isFinite(consultationEndedAtTimestamp) && consultationEndedAtTimestamp > 0 && consultationEndedAtTimestamp <= now.getTime()) {
     return 'completed';
   }
 
-  return 'upcoming';
+  return getAppointmentLifecycleStatusByTimeZone({
+    appointmentDate: appointmentRecord?.appointmentDate,
+    fromTime: appointmentRecord?.fromTime,
+    toTime: appointmentRecord?.toTime,
+    now
+  });
 };
 
 const formatCurrencyInRupees = (amountInRupees) => {
@@ -468,6 +458,7 @@ export const mapDoctorScheduleRecord = (appointmentRecord) => {
     patientName: String(appointmentRecord?.patientName || '').trim() || 'Patient',
     patientEmail: String(appointmentRecord?.patientEmail || '').trim() || 'N/A',
     patientPhoneNumber: String(appointmentRecord?.contactPhoneNumber || '').trim() || 'N/A',
+    bookingReason: String(appointmentRecord?.bookingReason || '').trim(),
     appointmentDate: String(appointmentRecord?.appointmentDate || '').trim(),
     fromTime: String(appointmentRecord?.fromTime || '').trim(),
     toTime: String(appointmentRecord?.toTime || '').trim(),
@@ -507,6 +498,7 @@ export const mapDoctorAppointmentForDashboard = (appointmentRecord, { lifecycleS
     toTime: String(appointmentRecord?.toTime || '').trim(),
     consultationMode: normalizeConsultationMode(appointmentRecord?.consultationMode) || 'online',
     amountInRupees: Math.max(0, Math.trunc(Number(appointmentRecord?.amountInRupees || 0))),
+    bookingReason: String(appointmentRecord?.bookingReason || '').trim(),
     cancelledAt: appointmentRecord?.cancelledAt || null,
     patient: {
       id: String(appointmentRecord?.patientId || ''),

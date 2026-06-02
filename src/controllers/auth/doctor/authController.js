@@ -11,6 +11,7 @@ import {
   sendVerificationOtpEmail,
   uploadDoctorLicenseToCloudinary
 } from './shared.js';
+import crypto from 'crypto';
 
 export const registerDoctor = async (req, res) => {
   try {
@@ -90,6 +91,12 @@ export const registerDoctor = async (req, res) => {
     doctor.reviewedBy = null;
     doctor.verificationOtpHash = null;
     doctor.verificationOtpExpiresAt = null;
+    doctor.currentPlan = 'diamond';
+    doctor.subscriptionStatus = 'active';
+    doctor.planActivatedAt = doctor.planActivatedAt || new Date();
+    doctor.planExpiresAt = null;
+    doctor.planCancelledAt = null;
+    doctor.lastPlanPaymentAt = doctor.lastPlanPaymentAt || new Date();
 
     if (uploadedLicense) {
       doctor.licenseDocument = uploadedLicense;
@@ -108,10 +115,14 @@ export const registerDoctor = async (req, res) => {
 
 export const sendDoctorVerificationOtp = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, purpose = 'signup' } = req.body;
 
     if (!email) {
       return res.status(400).json({ message: 'Email is required' });
+    }
+
+    if (!['signup', 'reset'].includes(purpose)) {
+      return res.status(400).json({ message: 'Invalid OTP purpose' });
     }
 
     const normalizedEmail = normalizeEmail(email);
@@ -121,8 +132,12 @@ export const sendDoctorVerificationOtp = async (req, res) => {
       return res.status(404).json({ message: 'Doctor not found. Please register first.' });
     }
 
-    if (doctor.emailVerified) {
+    if (purpose === 'signup' && doctor.emailVerified) {
       return res.status(400).json({ message: 'Email is already verified. Your application is under review.' });
+    }
+
+    if (purpose === 'reset' && !doctor.emailVerified) {
+      return res.status(400).json({ message: 'Please verify your account first before resetting password.' });
     }
 
     const otp = generateOtp(6);
@@ -144,17 +159,23 @@ export const sendDoctorVerificationOtp = async (req, res) => {
 
 export const sendDoctorLoginOtp = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, password } = req.body;
 
-    if (!email) {
-      return res.status(400).json({ message: 'Email is required' });
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password are required' });
     }
 
     const normalizedEmail = normalizeEmail(email);
     const doctor = await Doctor.findOne({ email: normalizedEmail });
 
     if (!doctor) {
-      return res.status(404).json({ message: 'Doctor not found' });
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    const isMatch = await doctor.comparePassword(password);
+
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Invalid credentials' });
     }
 
     if (!doctor.emailVerified) {
@@ -188,10 +209,14 @@ export const sendDoctorLoginOtp = async (req, res) => {
 
 export const verifyDoctorOtp = async (req, res) => {
   try {
-    const { email, otp } = req.body;
+    const { email, otp, purpose = 'signup' } = req.body;
 
     if (!email || !otp) {
       return res.status(400).json({ message: 'Email and OTP are required' });
+    }
+
+    if (!['signup', 'reset'].includes(purpose)) {
+      return res.status(400).json({ message: 'Invalid OTP purpose' });
     }
 
     const normalizedEmail = normalizeEmail(email);
@@ -201,8 +226,12 @@ export const verifyDoctorOtp = async (req, res) => {
       return res.status(404).json({ message: 'Doctor not found. Please register first.' });
     }
 
-    if (doctor.emailVerified) {
+    if (purpose === 'signup' && doctor.emailVerified) {
       return res.status(200).json({ message: 'Email already verified. Application is under review.' });
+    }
+
+    if (purpose === 'reset' && !doctor.emailVerified) {
+      return res.status(400).json({ message: 'Account is not verified yet' });
     }
 
     if (!doctor.verificationOtpHash || !doctor.verificationOtpExpiresAt) {
@@ -223,14 +252,79 @@ export const verifyDoctorOtp = async (req, res) => {
       return res.status(400).json({ message: 'Invalid verification code' });
     }
 
-    doctor.emailVerified = true;
+    if (purpose === 'signup') {
+      doctor.emailVerified = true;
+    }
+
     doctor.verificationOtpHash = null;
     doctor.verificationOtpExpiresAt = null;
+    let resetToken;
+
+    if (purpose === 'reset') {
+      resetToken = crypto.randomBytes(32).toString('hex');
+      doctor.resetPasswordTokenHash = hashOtp(resetToken);
+      doctor.resetPasswordTokenExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
+    }
+
     await doctor.save();
+
+    if (purpose === 'reset') {
+      return res.status(200).json({
+        message: 'OTP verified. You can now reset your password.',
+        resetToken
+      });
+    }
 
     return res.status(200).json({ message: 'Email verified. Your application is now under admin review.' });
   } catch (error) {
     return res.status(500).json({ message: 'Could not verify doctor OTP', error: error.message });
+  }
+};
+
+export const resetDoctorPassword = async (req, res) => {
+  try {
+    const { email, resetToken, password, confirmPassword } = req.body;
+
+    if (!email || !resetToken || !password || !confirmPassword) {
+      return res.status(400).json({ message: 'Email, reset token, and passwords are required' });
+    }
+
+    if (password !== confirmPassword) {
+      return res.status(400).json({ message: 'Passwords do not match' });
+    }
+
+    const normalizedEmail = normalizeEmail(email);
+    const doctor = await Doctor.findOne({ email: normalizedEmail });
+
+    if (!doctor) {
+      return res.status(404).json({ message: 'Doctor not found' });
+    }
+
+    if (!doctor.resetPasswordTokenHash || !doctor.resetPasswordTokenExpiresAt) {
+      return res.status(400).json({ message: 'Reset session has expired. Please request a new code.' });
+    }
+
+    if (doctor.resetPasswordTokenExpiresAt.getTime() < Date.now()) {
+      doctor.resetPasswordTokenHash = null;
+      doctor.resetPasswordTokenExpiresAt = null;
+      await doctor.save();
+      return res.status(400).json({ message: 'Reset session has expired. Please request a new code.' });
+    }
+
+    const incomingTokenHash = hashOtp(resetToken);
+
+    if (incomingTokenHash !== doctor.resetPasswordTokenHash) {
+      return res.status(400).json({ message: 'Invalid reset session. Please verify OTP again.' });
+    }
+
+    doctor.password = password;
+    doctor.resetPasswordTokenHash = null;
+    doctor.resetPasswordTokenExpiresAt = null;
+    await doctor.save();
+
+    return res.status(200).json({ message: 'Password reset successfully. Please sign in.' });
+  } catch (error) {
+    return res.status(500).json({ message: 'Could not reset password', error: error.message });
   }
 };
 

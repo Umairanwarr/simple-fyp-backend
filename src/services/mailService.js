@@ -402,6 +402,8 @@ export const sendPatientClinicAppointmentBookedEmail = async ({
   patientName,
   clinicName,
   doctorName,
+  providerType = 'doctor',
+  serviceType = '',
   appointmentDate,
   fromTime,
   toTime,
@@ -413,6 +415,11 @@ export const sendPatientClinicAppointmentBookedEmail = async ({
   const safePatientName = String(patientName || 'Patient').trim();
   const safeClinicName = String(clinicName || 'Clinic').trim();
   const safeDoctorName = String(doctorName || 'Doctor').trim();
+  const normalizedProviderType = String(providerType || '').trim().toLowerCase() === 'service' ? 'service' : 'doctor';
+  const normalizedServiceType = String(serviceType || '').trim().toLowerCase() === 'facility' ? 'facility' : 'lab';
+  const providerLabel = normalizedProviderType === 'service'
+    ? `${safeDoctorName} (${normalizedServiceType === 'facility' ? 'Facility' : 'Lab'})`
+    : `Dr. ${safeDoctorName}`;
   const modeLabel = consultationMode === 'offline' ? 'Offline (Clinic Visit)' : 'Online Consultation';
   const amountText = formatCurrencyInRupees(amountInRupees);
 
@@ -424,7 +431,7 @@ export const sendPatientClinicAppointmentBookedEmail = async ({
       <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; color: #1f2937;">
         <h2 style="color: #1EBDB8; margin-bottom: 8px;">Clinic Appointment Booked successfully 🎉</h2>
         <p>Hi ${safePatientName},</p>
-        <p>Your appointment has been booked successfully at <strong>${safeClinicName}</strong> with <strong>Dr. ${safeDoctorName}</strong>.</p>
+        <p>Your appointment has been booked successfully at <strong>${safeClinicName}</strong> with <strong>${providerLabel}</strong>.</p>
         <div style="background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 10px; padding: 14px 16px; margin: 16px 0;">
           <p style="margin: 0 0 8px;"><strong>Date:</strong> ${appointmentDate}</p>
           <p style="margin: 0 0 8px;"><strong>Time:</strong> ${fromTime} - ${toTime}</p>
@@ -439,11 +446,75 @@ export const sendPatientClinicAppointmentBookedEmail = async ({
   await getTransporter().sendMail(mailOptions);
 };
 
+export const sendPatientAppointmentReminderEmail = async ({
+  to,
+  patientName,
+  providerName,
+  providerType = 'doctor',
+  clinicName = '',
+  appointmentDate,
+  fromTime,
+  toTime,
+  consultationMode
+}) => {
+  ensureSmtpCredentials();
+
+  const safePatientName = String(patientName || '').trim() || 'Patient';
+  const safeProviderName = String(providerName || '').trim() || 'Doctor';
+  const safeClinicName = String(clinicName || '').trim();
+  const normalizedProviderType = String(providerType || '').trim().toLowerCase();
+  const providerLabel = normalizedProviderType === 'service'
+    ? safeProviderName
+    : `Dr. ${safeProviderName}`;
+  const locationLabel = safeClinicName
+    ? ` at ${safeClinicName}`
+    : '';
+  const modeLabel = consultationMode === 'offline'
+    ? 'Clinic Visit'
+    : consultationMode === 'video'
+      ? 'Online Video Call'
+      : 'Online Consultation';
+
+  const subject = 'Appointment Reminder - Starts in 5 minutes';
+  const summary = `Your appointment with ${providerLabel}${locationLabel} starts in 5 minutes.`;
+
+  await getTransporter().sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject,
+    text: [
+      `Hi ${safePatientName},`,
+      '',
+      summary,
+      `Date: ${appointmentDate}`,
+      `Time: ${fromTime} - ${toTime}`,
+      `Mode: ${modeLabel}`,
+      '',
+      'Please be ready for your scheduled appointment.'
+    ].join('\n'),
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; color: #1f2937;">
+        <h2 style="margin-bottom: 8px;">Appointment Reminder</h2>
+        <p style="margin: 0 0 16px;">Hi ${safePatientName},</p>
+        <p style="margin: 0 0 16px;">${summary}</p>
+        <div style="background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 10px; padding: 14px 16px; margin: 16px 0;">
+          <p style="margin: 0 0 8px;"><strong>Date:</strong> ${appointmentDate}</p>
+          <p style="margin: 0 0 8px;"><strong>Time:</strong> ${fromTime} - ${toTime}</p>
+          <p style="margin: 0;"><strong>Mode:</strong> ${modeLabel}</p>
+        </div>
+        <p style="color: #6b7280; font-size: 13px;">Please be ready for your scheduled appointment.</p>
+      </div>
+    `
+  });
+};
+
 export const sendClinicAppointmentBookedEmail = async ({
   to,
   clinicName,
   patientName,
   doctorName,
+  providerType = 'doctor',
+  serviceType = '',
   appointmentDate,
   fromTime,
   toTime,
@@ -455,18 +526,23 @@ export const sendClinicAppointmentBookedEmail = async ({
   const safeClinicName = String(clinicName || 'Clinic').trim();
   const safePatientName = String(patientName || 'Patient').trim();
   const safeDoctorName = String(doctorName || 'Doctor').trim();
+  const normalizedProviderType = String(providerType || '').trim().toLowerCase() === 'service' ? 'service' : 'doctor';
+  const normalizedServiceType = String(serviceType || '').trim().toLowerCase() === 'facility' ? 'facility' : 'lab';
+  const providerLabel = normalizedProviderType === 'service'
+    ? `${safeDoctorName} (${normalizedServiceType === 'facility' ? 'Facility' : 'Lab'})`
+    : `Dr. ${safeDoctorName}`;
   const modeLabel = consultationMode === 'offline' ? 'Offline (Clinic Visit)' : 'Online Consultation';
   const amountText = formatCurrencyInRupees(amountInRupees);
 
   const mailOptions = {
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
     to,
-    subject: `New Appointment Received — Dr. ${safeDoctorName}`,
+    subject: `New Appointment Received — ${providerLabel}`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; color: #1f2937;">
         <h2 style="color: #1EBDB8; margin-bottom: 8px;">New Appointment Booked 📦</h2>
         <p>Hi ${safeClinicName},</p>
-        <p><strong>${safePatientName}</strong> has booked a new appointment with <strong>Dr. ${safeDoctorName}</strong>.</p>
+        <p><strong>${safePatientName}</strong> has booked a new appointment with <strong>${providerLabel}</strong>.</p>
         <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; margin: 16px 0;">
           <p style="margin: 0 0 8px;"><strong>Date:</strong> ${appointmentDate}</p>
           <p style="margin: 0 0 8px;"><strong>Time:</strong> ${fromTime} - ${toTime}</p>
@@ -479,6 +555,37 @@ export const sendClinicAppointmentBookedEmail = async ({
   };
 
   await getTransporter().sendMail(mailOptions);
+};
+
+export const sendClinicReviewSubmittedEmail = async ({
+  to,
+  clinicName,
+  patientName,
+  rating,
+  comment
+}) => {
+  ensureSmtpCredentials();
+
+  const safeClinicName = String(clinicName || 'Clinic').trim();
+  const safePatientName = String(patientName || 'Patient').trim();
+  const safeRating = Math.max(1, Math.min(5, Math.trunc(Number(rating || 0)) || 0));
+  const safeComment = String(comment || '').trim() || 'No additional comments were provided.';
+
+  await getTransporter().sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject: `New Clinic Review - ${safeClinicName}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; color: #1f2937;">
+        <h2 style="color: #1EBDB8; margin-bottom: 8px;">New Patient Review</h2>
+        <p>Hi ${safeClinicName},</p>
+        <p><strong>${safePatientName}</strong> submitted a <strong>${safeRating}-star</strong> review for your clinic.</p>
+        <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; margin: 16px 0;">
+          <p style="margin: 0;">${safeComment}</p>
+        </div>
+      </div>
+    `
+  });
 };
 
 export const sendPatientAppointmentCancelledEmail = async ({
@@ -751,7 +858,14 @@ export const sendNewChatMessageEmail = async ({
 
   const safeRecipientName = String(recipientName || '').trim() || 'User';
   const safeSenderName = String(senderName || '').trim() || 'Someone';
-  const senderType = String(senderRole || '').toLowerCase() === 'doctor' ? 'doctor' : 'patient';
+  const senderRoleValue = String(senderRole || '').trim().toLowerCase();
+  const senderTypeLabelByRole = {
+    doctor: 'doctor',
+    patient: 'patient',
+    clinic: 'clinic',
+    'medical-store': 'medical store'
+  };
+  const senderType = senderTypeLabelByRole[senderRoleValue] || 'user';
   
   const mailOptions = {
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
@@ -773,7 +887,7 @@ export const sendNewChatMessageEmail = async ({
         <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; font-style: italic;">
           "${messagePreview}"
         </div>
-        <p style="margin: 0;"><a href="${process.env.CLIENT_ORIGIN || 'http://localhost:5173'}" style="color: #1EBDB8; text-decoration: none; font-weight: bold;">Log in to reply</a></p>
+        <p style="margin: 0;"><a href="${process.env.CLIENT_ORIGIN || 'https://simple-a-fyp.vercel.app'}" style="color: #1EBDB8; text-decoration: none; font-weight: bold;">Log in to reply</a></p>
       </div>
     `
   };
@@ -809,7 +923,7 @@ export const sendPrescriptionEmail = async ({ to, patientName, doctorName }) => 
         <div style="background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 10px; padding: 14px 16px; margin-bottom: 20px;">
           <p style="margin: 0;">Log in to your account and navigate to the <strong>Prescriptions</strong> tab to view the full details.</p>
         </div>
-        <p style="margin: 0;"><a href="${process.env.CLIENT_ORIGIN || 'http://localhost:5173'}/dashboard/prescriptions" style="color: #1EBDB8; text-decoration: none; font-weight: bold;">View Prescription &rarr;</a></p>
+        <p style="margin: 0;"><a href="${process.env.CLIENT_ORIGIN || 'https://simple-a-fyp.vercel.app'}/dashboard/prescriptions" style="color: #1EBDB8; text-decoration: none; font-weight: bold;">View Prescription &rarr;</a></p>
       </div>
     `
   };
@@ -986,4 +1100,3 @@ export const sendStoreOrderRejectedEmail = async ({ to, patientName, storeName, 
     `
   });
 };
-

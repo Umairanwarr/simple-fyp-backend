@@ -7,11 +7,36 @@ import {
 import { sendVerificationOtpEmail } from '../../services/mailService.js';
 import { generateOtp, getOtpExpiryDate, hashOtp } from '../../utils/otp.js';
 import { generateAuthToken } from '../../utils/token.js';
+import crypto from 'crypto';
 
 const normalizeEmail = (email) => String(email || '').toLowerCase().trim();
 
 const getClinicAvatarUrl = (clinicRecord) => {
   return String(clinicRecord?.avatarDocument?.url || '').trim();
+};
+
+const mapClinicSessionPayload = (clinicRecord) => ({
+  id: clinicRecord._id,
+  name: clinicRecord.name,
+  email: clinicRecord.email,
+  role: clinicRecord.role,
+  applicationStatus: clinicRecord.applicationStatus,
+  avatarUrl: getClinicAvatarUrl(clinicRecord),
+  currentPlan: ['platinum', 'gold', 'diamond'].includes(String(clinicRecord?.currentPlan || '').trim().toLowerCase())
+    ? String(clinicRecord.currentPlan).trim().toLowerCase()
+    : 'platinum',
+  subscriptionStatus: ['active', 'cancelled', 'expired'].includes(String(clinicRecord?.subscriptionStatus || '').trim().toLowerCase())
+    ? String(clinicRecord.subscriptionStatus).trim().toLowerCase()
+    : 'active',
+  planActivatedAt: clinicRecord?.planActivatedAt || null,
+  planExpiresAt: clinicRecord?.planExpiresAt || null,
+  lastPlanPaymentAt: clinicRecord?.lastPlanPaymentAt || null
+});
+const isDiamondPlanActive = (clinicRecord) => {
+  const plan = String(clinicRecord?.currentPlan || '').trim().toLowerCase();
+  const status = String(clinicRecord?.subscriptionStatus || '').trim().toLowerCase();
+  const expiryTimestamp = clinicRecord?.planExpiresAt ? new Date(clinicRecord.planExpiresAt).getTime() : 0;
+  return plan === 'diamond' && status === 'active' && expiryTimestamp > Date.now();
 };
 
 export const registerClinic = async (req, res) => {
@@ -95,10 +120,14 @@ export const registerClinic = async (req, res) => {
 
 export const sendClinicVerificationOtp = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, purpose = 'signup' } = req.body;
 
     if (!email) {
       return res.status(400).json({ message: 'Email is required' });
+    }
+
+    if (!['signup', 'reset'].includes(purpose)) {
+      return res.status(400).json({ message: 'Invalid OTP purpose' });
     }
 
     const normalizedEmail = normalizeEmail(email);
@@ -108,8 +137,12 @@ export const sendClinicVerificationOtp = async (req, res) => {
       return res.status(404).json({ message: 'Clinic not found. Please register first.' });
     }
 
-    if (clinic.emailVerified) {
+    if (purpose === 'signup' && clinic.emailVerified) {
       return res.status(400).json({ message: 'Email is already verified. Your application is under review.' });
+    }
+
+    if (purpose === 'reset' && !clinic.emailVerified) {
+      return res.status(400).json({ message: 'Please verify your account first before resetting password.' });
     }
 
     const otp = generateOtp(6);
@@ -131,17 +164,23 @@ export const sendClinicVerificationOtp = async (req, res) => {
 
 export const sendClinicLoginOtp = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, password } = req.body;
 
-    if (!email) {
-      return res.status(400).json({ message: 'Email is required' });
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password are required' });
     }
 
     const normalizedEmail = normalizeEmail(email);
     const clinic = await Clinic.findOne({ email: normalizedEmail });
 
     if (!clinic) {
-      return res.status(404).json({ message: 'Clinic not found' });
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    const isMatch = await clinic.comparePassword(password);
+
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Invalid credentials' });
     }
 
     if (!clinic.emailVerified) {
@@ -175,10 +214,14 @@ export const sendClinicLoginOtp = async (req, res) => {
 
 export const verifyClinicOtp = async (req, res) => {
   try {
-    const { email, otp } = req.body;
+    const { email, otp, purpose = 'signup' } = req.body;
 
     if (!email || !otp) {
       return res.status(400).json({ message: 'Email and OTP are required' });
+    }
+
+    if (!['signup', 'reset'].includes(purpose)) {
+      return res.status(400).json({ message: 'Invalid OTP purpose' });
     }
 
     const normalizedEmail = normalizeEmail(email);
@@ -188,8 +231,12 @@ export const verifyClinicOtp = async (req, res) => {
       return res.status(404).json({ message: 'Clinic not found. Please register first.' });
     }
 
-    if (clinic.emailVerified) {
+    if (purpose === 'signup' && clinic.emailVerified) {
       return res.status(200).json({ message: 'Email already verified. Application is under review.' });
+    }
+
+    if (purpose === 'reset' && !clinic.emailVerified) {
+      return res.status(400).json({ message: 'Account is not verified yet' });
     }
 
     if (!clinic.verificationOtpHash || !clinic.verificationOtpExpiresAt) {
@@ -210,14 +257,79 @@ export const verifyClinicOtp = async (req, res) => {
       return res.status(400).json({ message: 'Invalid verification code' });
     }
 
-    clinic.emailVerified = true;
+    if (purpose === 'signup') {
+      clinic.emailVerified = true;
+    }
+
     clinic.verificationOtpHash = null;
     clinic.verificationOtpExpiresAt = null;
+    let resetToken;
+
+    if (purpose === 'reset') {
+      resetToken = crypto.randomBytes(32).toString('hex');
+      clinic.resetPasswordTokenHash = hashOtp(resetToken);
+      clinic.resetPasswordTokenExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
+    }
+
     await clinic.save();
+
+    if (purpose === 'reset') {
+      return res.status(200).json({
+        message: 'OTP verified. You can now reset your password.',
+        resetToken
+      });
+    }
 
     return res.status(200).json({ message: 'Email verified. Your application is now under admin review.' });
   } catch (error) {
     return res.status(500).json({ message: 'Could not verify clinic OTP', error: error.message });
+  }
+};
+
+export const resetClinicPassword = async (req, res) => {
+  try {
+    const { email, resetToken, password, confirmPassword } = req.body;
+
+    if (!email || !resetToken || !password || !confirmPassword) {
+      return res.status(400).json({ message: 'Email, reset token, and passwords are required' });
+    }
+
+    if (password !== confirmPassword) {
+      return res.status(400).json({ message: 'Passwords do not match' });
+    }
+
+    const normalizedEmail = normalizeEmail(email);
+    const clinic = await Clinic.findOne({ email: normalizedEmail });
+
+    if (!clinic) {
+      return res.status(404).json({ message: 'Clinic not found' });
+    }
+
+    if (!clinic.resetPasswordTokenHash || !clinic.resetPasswordTokenExpiresAt) {
+      return res.status(400).json({ message: 'Reset session has expired. Please request a new code.' });
+    }
+
+    if (clinic.resetPasswordTokenExpiresAt.getTime() < Date.now()) {
+      clinic.resetPasswordTokenHash = null;
+      clinic.resetPasswordTokenExpiresAt = null;
+      await clinic.save();
+      return res.status(400).json({ message: 'Reset session has expired. Please request a new code.' });
+    }
+
+    const incomingTokenHash = hashOtp(resetToken);
+
+    if (incomingTokenHash !== clinic.resetPasswordTokenHash) {
+      return res.status(400).json({ message: 'Invalid reset session. Please verify OTP again.' });
+    }
+
+    clinic.password = password;
+    clinic.resetPasswordTokenHash = null;
+    clinic.resetPasswordTokenExpiresAt = null;
+    await clinic.save();
+
+    return res.status(200).json({ message: 'Password reset successfully. Please sign in.' });
+  } catch (error) {
+    return res.status(500).json({ message: 'Could not reset password', error: error.message });
   }
 };
 
@@ -283,14 +395,7 @@ export const loginClinic = async (req, res) => {
     return res.status(200).json({
       message: 'Login successful',
       token,
-      clinic: {
-        id: clinic._id,
-        name: clinic.name,
-        email: clinic.email,
-        role: clinic.role,
-        applicationStatus: clinic.applicationStatus,
-        avatarUrl: getClinicAvatarUrl(clinic)
-      }
+      clinic: mapClinicSessionPayload(clinic)
     });
   } catch (error) {
     return res.status(500).json({ message: 'Server error', error: error.message });
@@ -313,11 +418,17 @@ export const getClinicProfile = async (req, res) => {
         phone: clinic.phone,
         facilityType: clinic.facilityType,
         address: clinic.address,
+        about: clinic.about || '',
         applicationStatus: clinic.applicationStatus,
         role: clinic.role,
         avatarUrl: getClinicAvatarUrl(clinic),
         permitDocument: clinic.permitDocument || null,
-        createdAt: clinic.createdAt
+        createdAt: clinic.createdAt,
+        currentPlan: clinic.currentPlan || 'platinum',
+        subscriptionStatus: clinic.subscriptionStatus || 'active',
+        planExpiresAt: clinic.planExpiresAt || null,
+        isVerifiedBadge: isDiamondPlanActive(clinic),
+        hasPrioritySupport: isDiamondPlanActive(clinic)
       }
     });
   } catch (error) {
@@ -327,7 +438,7 @@ export const getClinicProfile = async (req, res) => {
 
 export const updateClinicProfile = async (req, res) => {
   try {
-    const { name, phone, address, facilityType } = req.body;
+    const { name, phone, address, facilityType, about } = req.body;
 
     const clinic = await Clinic.findById(req.user?.id);
 
@@ -339,6 +450,7 @@ export const updateClinicProfile = async (req, res) => {
     if (phone) clinic.phone = String(phone).trim();
     if (address) clinic.address = String(address).trim();
     if (facilityType) clinic.facilityType = String(facilityType).trim();
+    if (about !== undefined) clinic.about = String(about || '').trim().slice(0, 2000);
 
     await clinic.save();
 
@@ -351,9 +463,15 @@ export const updateClinicProfile = async (req, res) => {
         phone: clinic.phone,
         facilityType: clinic.facilityType,
         address: clinic.address,
+        about: clinic.about || '',
         applicationStatus: clinic.applicationStatus,
         role: clinic.role,
-        avatarUrl: getClinicAvatarUrl(clinic)
+        avatarUrl: getClinicAvatarUrl(clinic),
+        currentPlan: clinic.currentPlan || 'platinum',
+        subscriptionStatus: clinic.subscriptionStatus || 'active',
+        planExpiresAt: clinic.planExpiresAt || null,
+        isVerifiedBadge: isDiamondPlanActive(clinic),
+        hasPrioritySupport: isDiamondPlanActive(clinic)
       }
     });
   } catch (error) {
@@ -386,14 +504,7 @@ export const updateClinicAvatar = async (req, res) => {
 
     return res.status(200).json({
       message: 'Avatar updated successfully',
-      clinic: {
-        id: clinic._id,
-        name: clinic.name,
-        email: clinic.email,
-        role: clinic.role,
-        applicationStatus: clinic.applicationStatus,
-        avatarUrl: getClinicAvatarUrl(clinic)
-      }
+      clinic: mapClinicSessionPayload(clinic)
     });
   } catch (error) {
     return res.status(500).json({ message: 'Could not update avatar', error: error.message });

@@ -10,6 +10,7 @@ import { DoctorMedia } from '../../../models/DoctorMedia.js';
 import { DoctorSubscriptionNotification } from '../../../models/DoctorSubscriptionNotification.js';
 import { DoctorLivestreamNotification } from '../../../models/DoctorLivestreamNotification.js';
 import ChatMessage from '../../../models/ChatMessage.js';
+import { decryptChatText } from '../../../utils/chatCrypto.js';
 
 export const getDoctorNotifications = async (req, res) => {
   try {
@@ -111,11 +112,12 @@ export const getDoctorNotifications = async (req, res) => {
     const chatNotifications = unreadChats.map(chat => {
       const fromDoc = chat.from || {};
       const senderName = chat.fromModel === 'Doctor' ? fromDoc.fullName : `${fromDoc.firstName || ''} ${fromDoc.lastName || ''}`.trim();
+      const messageText = decryptChatText(chat.content);
       return {
         id: String(chat._id),
         type: 'chat_message',
         title: `New message from ${senderName || 'Someone'}`,
-        message: chat.content,
+        message: messageText || 'You received a new media message.',
         createdAt: chat.createdAt
       };
     });

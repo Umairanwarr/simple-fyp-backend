@@ -1,4 +1,17 @@
 import { Medicine } from '../models/Medicine.js';
+import { MedicalStore } from '../models/MedicalStore.js';
+
+const normalizeStorePlan = (value) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  return ['platinum', 'gold', 'diamond'].includes(normalized) ? normalized : 'platinum';
+};
+
+const getInventoryLimitByPlan = (storePlan) => {
+  const normalizedPlan = normalizeStorePlan(storePlan);
+  if (normalizedPlan === 'gold') return 500;
+  if (normalizedPlan === 'diamond') return Infinity;
+  return 50;
+};
 
 // Get all medicines for a store
 export const getMedicines = async (req, res) => {
@@ -16,6 +29,18 @@ export const addMedicine = async (req, res) => {
   try {
     const storeId = req.user.id;
     const { name, brand, price, stock, category, description } = req.body;
+    const store = await MedicalStore.findById(storeId).select('currentPlan').lean();
+    if (!store) return res.status(404).json({ error: 'Store not found' });
+
+    const inventoryLimit = getInventoryLimitByPlan(store.currentPlan);
+    if (Number.isFinite(inventoryLimit)) {
+      const currentCount = await Medicine.countDocuments({ storeId });
+      if (currentCount >= inventoryLimit) {
+        return res.status(403).json({
+          error: `Inventory limit reached for ${normalizeStorePlan(store.currentPlan)} plan (${inventoryLimit} products max)`
+        });
+      }
+    }
 
     const newMedicine = new Medicine({
       storeId,

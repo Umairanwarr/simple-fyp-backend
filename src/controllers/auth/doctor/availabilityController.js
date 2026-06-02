@@ -3,12 +3,27 @@ import {
   Doctor,
   getDoctorMissingProfileFields,
   hasOverlappingAvailabilitySlot,
+  isAvailabilitySlotExpired,
   mapDoctorAvailabilitySlots,
   normalizeAvailabilityAddress,
   normalizeConsultationMode,
   normalizePriceInRupees,
   validateAvailabilitySlotPayload
 } from './shared.js';
+
+const removeExpiredDoctorSlots = async (doctor) => {
+  if (!doctor || !Array.isArray(doctor.availabilitySlots)) {
+    return;
+  }
+
+  const now = new Date();
+  const activeSlots = doctor.availabilitySlots.filter((slot) => !isAvailabilitySlotExpired(slot, now));
+
+  if (activeSlots.length !== doctor.availabilitySlots.length) {
+    doctor.availabilitySlots = activeSlots;
+    await doctor.save();
+  }
+};
 
 export const getDoctorAvailability = async (req, res) => {
   try {
@@ -17,6 +32,8 @@ export const getDoctorAvailability = async (req, res) => {
     if (!doctor) {
       return res.status(404).json({ message: 'Doctor not found' });
     }
+
+    await removeExpiredDoctorSlots(doctor);
 
     const confirmedAppointments = await Appointment.find({
       doctorId: req.user?.id,
@@ -69,6 +86,8 @@ export const createDoctorAvailability = async (req, res) => {
     if (!doctor) {
       return res.status(404).json({ message: 'Doctor not found' });
     }
+
+    await removeExpiredDoctorSlots(doctor);
 
     const missingProfileFields = getDoctorMissingProfileFields(doctor);
 
@@ -148,6 +167,8 @@ export const updateDoctorAvailabilitySlot = async (req, res) => {
       return res.status(404).json({ message: 'Doctor not found' });
     }
 
+    await removeExpiredDoctorSlots(doctor);
+
     const missingProfileFields = getDoctorMissingProfileFields(doctor);
 
     if (missingProfileFields.length > 0) {
@@ -216,6 +237,8 @@ export const deleteDoctorAvailabilitySlot = async (req, res) => {
     if (!doctor) {
       return res.status(404).json({ message: 'Doctor not found' });
     }
+
+    await removeExpiredDoctorSlots(doctor);
 
     const existingSlot = doctor.availabilitySlots.id(slotId);
 

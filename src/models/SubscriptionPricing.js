@@ -23,6 +23,34 @@ const subscriptionPricingSchema = new mongoose.Schema(
       default: 2999,
       min: 0
     },
+    campaignPlans: [
+      {
+        id: {
+          type: String,
+          required: true,
+          trim: true
+        },
+        name: {
+          type: String,
+          required: true,
+          trim: true
+        },
+        priceInRupees: {
+          type: Number,
+          required: true,
+          min: 0
+        },
+        durationDays: {
+          type: Number,
+          required: true,
+          min: 1
+        },
+        isActive: {
+          type: Boolean,
+          default: true
+        }
+      }
+    ],
     updatedByAdminId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Admin',

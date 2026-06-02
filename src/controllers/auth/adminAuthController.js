@@ -18,6 +18,7 @@ import mongoose from 'mongoose';
 
 const DOCTOR_SUBSCRIPTION_PRICING_KEY = 'doctor-dashboard-subscriptions';
 const STORE_SUBSCRIPTION_PRICING_KEY = 'medical-store-dashboard-subscriptions';
+const CLINIC_SUBSCRIPTION_PRICING_KEY = 'clinic-dashboard-subscriptions';
 
 const escapeRegex = (value) => {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -58,6 +59,25 @@ const mapAdminReviewNotification = (doctorRecord, reviewRecord) => {
     title: 'New Doctor Review',
     message: `${safePatientName} submitted a ${safeRating}-star review for Dr. ${safeDoctorName}.`,
     doctorName: safeDoctorName,
+    patientName: safePatientName,
+    rating: safeRating,
+    createdAt: reviewRecord?.createdAt || null
+  };
+};
+
+const mapAdminClinicReviewNotification = (clinicRecord, reviewRecord) => {
+  const safeClinicName = String(clinicRecord?.name || '').trim() || 'Clinic';
+  const safePatientName = String(reviewRecord?.patientName || '').trim() || 'Patient';
+  const safeRating = Math.max(1, Math.min(5, Math.trunc(Number(reviewRecord?.rating || 0)) || 0));
+
+  return {
+    id: `clinic-review-${String(reviewRecord?._id || '')}`,
+    reviewId: String(reviewRecord?._id || ''),
+    appointmentId: String(reviewRecord?.appointmentId || ''),
+    type: 'clinic_review_submitted',
+    title: 'New Clinic Review',
+    message: `${safePatientName} submitted a ${safeRating}-star review for ${safeClinicName}.`,
+    clinicName: safeClinicName,
     patientName: safePatientName,
     rating: safeRating,
     createdAt: reviewRecord?.createdAt || null
@@ -222,8 +242,8 @@ const mapDoctorSubscriptionPricing = (pricingRecord) => {
 const getDefaultStoreSubscriptionPricing = () => {
   return {
     platinumPriceInRupees: 0,
-    goldPriceInRupees: 1499,
-    diamondPriceInRupees: 3999
+    goldPriceInRupees: 1999,
+    diamondPriceInRupees: 4999
   };
 };
 
@@ -257,6 +277,55 @@ const getOrCreateStoreSubscriptionPricing = async () => {
     {
       $setOnInsert: {
         key: STORE_SUBSCRIPTION_PRICING_KEY,
+        ...fallbackPricing
+      }
+    },
+    {
+      new: true,
+      upsert: true,
+      setDefaultsOnInsert: true
+    }
+  ).lean();
+};
+
+const getDefaultClinicSubscriptionPricing = () => {
+  return {
+    platinumPriceInRupees: 0,
+    goldPriceInRupees: 1999,
+    diamondPriceInRupees: 4999
+  };
+};
+
+const mapClinicSubscriptionPricing = (pricingRecord) => {
+  const fallbackPricing = getDefaultClinicSubscriptionPricing();
+
+  return {
+    platinumPriceInRupees: normalizePriceInRupees(
+      pricingRecord?.platinumPriceInRupees,
+      fallbackPricing.platinumPriceInRupees
+    ),
+    goldPriceInRupees: normalizePriceInRupees(
+      pricingRecord?.goldPriceInRupees,
+      fallbackPricing.goldPriceInRupees
+    ),
+    diamondPriceInRupees: normalizePriceInRupees(
+      pricingRecord?.diamondPriceInRupees,
+      fallbackPricing.diamondPriceInRupees
+    ),
+    updatedAt: pricingRecord?.updatedAt || null
+  };
+};
+
+const getOrCreateClinicSubscriptionPricing = async () => {
+  const fallbackPricing = getDefaultClinicSubscriptionPricing();
+
+  return SubscriptionPricing.findOneAndUpdate(
+    {
+      key: CLINIC_SUBSCRIPTION_PRICING_KEY
+    },
+    {
+      $setOnInsert: {
+        key: CLINIC_SUBSCRIPTION_PRICING_KEY,
         ...fallbackPricing
       }
     },
@@ -471,8 +540,8 @@ export const updateStoreSubscriptionPricingForAdmin = async (req, res) => {
       {
         $set: {
           platinumPriceInRupees: normalizePriceInRupees(platinumPriceInRupees, 0),
-          goldPriceInRupees: normalizePriceInRupees(goldPriceInRupees, 1499),
-          diamondPriceInRupees: normalizePriceInRupees(diamondPriceInRupees, 3999),
+          goldPriceInRupees: normalizePriceInRupees(goldPriceInRupees, 1999),
+          diamondPriceInRupees: normalizePriceInRupees(diamondPriceInRupees, 4999),
           updatedByAdminId: req.user?.id || null
         },
         $setOnInsert: {
@@ -493,6 +562,85 @@ export const updateStoreSubscriptionPricingForAdmin = async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       message: 'Could not update store subscription pricing',
+      error: error.message
+    });
+  }
+};
+
+export const getClinicSubscriptionPricingForAdmin = async (req, res) => {
+  try {
+    const pricingRecord = await getOrCreateClinicSubscriptionPricing();
+
+    return res.status(200).json({
+      pricing: mapClinicSubscriptionPricing(pricingRecord)
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: 'Could not fetch clinic subscription pricing',
+      error: error.message
+    });
+  }
+};
+
+export const updateClinicSubscriptionPricingForAdmin = async (req, res) => {
+  try {
+    const {
+      platinumPriceInRupees,
+      goldPriceInRupees,
+      diamondPriceInRupees
+    } = req.body || {};
+
+    const inputValues = [
+      platinumPriceInRupees,
+      goldPriceInRupees,
+      diamondPriceInRupees
+    ];
+
+    const hasInvalidValue = inputValues.some((priceValue) => {
+      if (priceValue === null || priceValue === undefined || priceValue === '') {
+        return true;
+      }
+
+      const numericValue = Number(priceValue);
+
+      return !Number.isFinite(numericValue) || numericValue < 0;
+    });
+
+    if (hasInvalidValue) {
+      return res.status(400).json({
+        message: 'All price fields are required and must be non-negative numbers'
+      });
+    }
+
+    const updatedRecord = await SubscriptionPricing.findOneAndUpdate(
+      {
+        key: CLINIC_SUBSCRIPTION_PRICING_KEY
+      },
+      {
+        $set: {
+          platinumPriceInRupees: normalizePriceInRupees(platinumPriceInRupees, 0),
+          goldPriceInRupees: normalizePriceInRupees(goldPriceInRupees, 1999),
+          diamondPriceInRupees: normalizePriceInRupees(diamondPriceInRupees, 4999),
+          updatedByAdminId: req.user?.id || null
+        },
+        $setOnInsert: {
+          key: CLINIC_SUBSCRIPTION_PRICING_KEY
+        }
+      },
+      {
+        new: true,
+        upsert: true,
+        setDefaultsOnInsert: true
+      }
+    ).lean();
+
+    return res.status(200).json({
+      message: 'Clinic subscription pricing updated successfully',
+      pricing: mapClinicSubscriptionPricing(updatedRecord)
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: 'Could not update clinic subscription pricing',
       error: error.message
     });
   }
@@ -548,7 +696,10 @@ export const getAdminStats = async (req, res) => {
       subscriptionMetrics,
       recentCommissions,
       premiumDoctors,
-      premiumStores
+      premiumStores,
+      premiumClinics,
+      totalGoldClinics,
+      totalDiamondClinics
     ] = await Promise.all([
       Patient.countDocuments(),
       Patient.countDocuments({ isVerified: true }),
@@ -626,7 +777,20 @@ export const getAdminStats = async (req, res) => {
         .select('name email phone currentPlan planActivatedAt planExpiresAt lastPlanPaymentAt')
         .sort({ lastPlanPaymentAt: -1, planActivatedAt: -1 })
         .limit(100)
-        .lean()
+        .lean(),
+      Clinic.find(activePaidPlanFilters)
+        .select('name email phone currentPlan planActivatedAt planExpiresAt lastPlanPaymentAt')
+        .sort({ lastPlanPaymentAt: -1, planActivatedAt: -1 })
+        .limit(100)
+        .lean(),
+      Clinic.countDocuments({
+        ...activePaidPlanFilters,
+        currentPlan: 'gold'
+      }),
+      Clinic.countDocuments({
+        ...activePaidPlanFilters,
+        currentPlan: 'diamond'
+      })
     ]);
 
     const normalizedAppointmentMetrics = Array.isArray(appointmentMetrics)
@@ -658,6 +822,8 @@ export const getAdminStats = async (req, res) => {
       totalDiamondDoctors,
       totalGoldStores,
       totalDiamondStores,
+      totalGoldClinics,
+      totalDiamondClinics,
       totalConfirmedAppointments: Math.max(
         0,
         Math.trunc(Number(normalizedAppointmentMetrics?.totalConfirmedAppointments || 0))
@@ -695,6 +861,19 @@ export const getAdminStats = async (req, res) => {
               planExpiresAt: store?.planExpiresAt || null,
               purchasedAt: store?.lastPlanPaymentAt || store?.planActivatedAt || null
             }))
+          : []),
+        ...(Array.isArray(premiumClinics)
+          ? premiumClinics.map((clinic) => ({
+              id: String(clinic?._id || ''),
+              fullName: String(clinic?.name || '').trim() || 'Clinic',
+              email: String(clinic?.email || '').trim() || 'N/A',
+              phone: String(clinic?.phone || '').trim() || 'N/A',
+              role: 'Clinic',
+              currentPlan: String(clinic?.currentPlan || '').trim().toLowerCase() || 'platinum',
+              planActivatedAt: clinic?.planActivatedAt || null,
+              planExpiresAt: clinic?.planExpiresAt || null,
+              purchasedAt: clinic?.lastPlanPaymentAt || clinic?.planActivatedAt || null
+            }))
           : [])
       ].sort((a, b) => new Date(b.purchasedAt || 0) - new Date(a.purchasedAt || 0)),
       recentCommissions: Array.isArray(recentCommissions)
@@ -726,13 +905,20 @@ export const getAdminNotifications = async (req, res) => {
       return res.status(404).json({ message: 'Admin not found' });
     }
 
-    const [doctors, bugReports, pendingDoctorMedia, pendingWithdraws] = await Promise.all([
+    const [doctors, clinicsWithReviews, bugReports, pendingDoctorMedia, pendingWithdraws] = await Promise.all([
       Doctor.find({
         'reviews.0': {
           $exists: true
         }
       })
         .select('fullName reviews')
+        .lean(),
+      Clinic.find({
+        'reviews.0': {
+          $exists: true
+        }
+      })
+        .select('name reviews')
         .lean(),
       BugReport.find({})
         .select('reporterName reporterRole subject createdAt')
@@ -765,13 +951,22 @@ export const getAdminNotifications = async (req, res) => {
         return toDateTimestamp(secondNotification?.createdAt) - toDateTimestamp(firstNotification?.createdAt);
       });
 
+    const clinicReviewNotifications = clinicsWithReviews
+      .flatMap((clinic) => {
+        const reviews = Array.isArray(clinic?.reviews) ? clinic.reviews : [];
+        return reviews.map((review) => mapAdminClinicReviewNotification(clinic, review));
+      })
+      .sort((firstNotification, secondNotification) => {
+        return toDateTimestamp(secondNotification?.createdAt) - toDateTimestamp(firstNotification?.createdAt);
+      });
+
     const bugReportNotifications = bugReports.map((bugReport) => mapAdminBugReportNotification(bugReport));
     const mediaNotifications = pendingDoctorMedia.map((mediaRecord) => {
       return mapAdminDoctorMediaUploadNotification(mediaRecord);
     });
     const withdrawNotifications = (pendingWithdraws || []).map((req) => mapAdminWithdrawRequestNotification(req));
 
-    const notifications = [...bugReportNotifications, ...reviewNotifications, ...mediaNotifications, ...withdrawNotifications]
+    const notifications = [...bugReportNotifications, ...reviewNotifications, ...clinicReviewNotifications, ...mediaNotifications, ...withdrawNotifications]
       .sort((firstNotification, secondNotification) => {
         return toDateTimestamp(secondNotification?.createdAt) - toDateTimestamp(firstNotification?.createdAt);
       })
@@ -898,6 +1093,72 @@ export const getStoreReviewsForAdmin = async (req, res) => {
     return res.status(200).json({ reviews });
   } catch (error) {
     return res.status(500).json({ message: 'Could not fetch store reviews', error: error.message });
+  }
+};
+
+export const getClinicReviewsForAdmin = async (req, res) => {
+  try {
+    const clinicNameQuery = String(req.query?.clinicName || '').trim();
+    const clinicFilters = { 'reviews.0': { $exists: true } };
+
+    if (clinicNameQuery) {
+      clinicFilters.name = {
+        $regex: escapeRegex(clinicNameQuery),
+        $options: 'i'
+      };
+    }
+
+    const clinics = await Clinic.find(clinicFilters)
+      .select('name facilityType averageRating totalReviews reviews')
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    const reviews = clinics
+      .flatMap((clinic) => {
+        const clinicReviews = Array.isArray(clinic?.reviews) ? clinic.reviews : [];
+        return clinicReviews.map((review) => ({
+          id: String(review?._id || ''),
+          clinicId: String(clinic?._id || ''),
+          clinicName: String(clinic?.name || '').trim() || 'Clinic',
+          clinicFacilityType: String(clinic?.facilityType || '').trim() || 'Clinic',
+          patientName: String(review?.patientName || '').trim() || 'Patient',
+          doctorName: String(review?.doctorName || '').trim(),
+          rating: Math.max(1, Math.min(5, Math.trunc(Number(review?.rating || 0)) || 0)),
+          comment: String(review?.comment || '').trim(),
+          createdAt: review?.createdAt || null
+        }));
+      })
+      .sort((a, b) => toDateTimestamp(b?.createdAt) - toDateTimestamp(a?.createdAt));
+
+    return res.status(200).json({ reviews });
+  } catch (error) {
+    return res.status(500).json({ message: 'Could not fetch clinic reviews', error: error.message });
+  }
+};
+
+export const deleteClinicReviewForAdmin = async (req, res) => {
+  try {
+    const { reviewId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(reviewId)) {
+      return res.status(400).json({ message: 'Invalid review id' });
+    }
+
+    const clinic = await Clinic.findOne({ 'reviews._id': reviewId }).select('reviews averageRating totalReviews');
+    if (!clinic) {
+      return res.status(404).json({ message: 'Review not found' });
+    }
+
+    clinic.reviews = clinic.reviews.filter((review) => String(review?._id || '') !== String(reviewId));
+    const totalReviews = clinic.reviews.length;
+    const totalRating = clinic.reviews.reduce((sum, review) => sum + Math.max(1, Math.min(5, Number(review?.rating || 0))), 0);
+    clinic.totalReviews = totalReviews;
+    clinic.averageRating = totalReviews > 0 ? Number((totalRating / totalReviews).toFixed(2)) : 0;
+    await clinic.save();
+
+    return res.status(200).json({ message: 'Clinic review deleted successfully' });
+  } catch (error) {
+    return res.status(500).json({ message: 'Could not delete clinic review', error: error.message });
   }
 };
 
