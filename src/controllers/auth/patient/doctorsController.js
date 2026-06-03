@@ -47,7 +47,7 @@ export const getDoctorProfileForPatient = async (req, res) => {
       applicationStatus: { $ne: 'declined' },
       emailVerified: true
     })
-      .select('fullName specialization address bio avatarDocument availabilitySlots profileCtr reviews averageRating totalReviews');
+      .select('fullName specialization address bio avatarDocument availabilitySlots profileCtr reviews averageRating totalReviews education experience');
 
     if (!doctor) {
       return res.status(404).json({ message: 'Doctor not found' });
@@ -115,6 +115,8 @@ export const getDoctorProfileForPatient = async (req, res) => {
         specialty: String(doctor.specialization || '').trim() || 'Specialist',
         location: String(doctor.address || '').trim() || 'Location not provided',
         bio: String(doctor.bio || '').trim() || 'Doctor bio is not available yet.',
+        education: String(doctor.education || '').trim() || '',
+        experience: Number(doctor.experience || 0),
         rating: doctor.averageRating ? doctor.averageRating.toFixed(2) : '0.00',
         reviews: `${doctor.totalReviews || 0} reviews`,
         reviewsList: doctor.reviews || [],

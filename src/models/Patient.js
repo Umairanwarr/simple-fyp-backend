@@ -85,6 +85,12 @@ const patientSchema = new mongoose.Schema(
         ref: 'MedicalStore'
       }
     ],
+    favoriteClinicIds: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Clinic'
+      }
+    ],
     avatarDocument: {
       url: {
         type: String,

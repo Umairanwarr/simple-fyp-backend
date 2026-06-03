@@ -46,6 +46,11 @@ const doctorSchema = new mongoose.Schema(
       trim: true,
       maxlength: 1200
     },
+    education: {
+      type: String,
+      default: '',
+      trim: true
+    },
     licenseDocument: {
       url: {
         type: String,

@@ -85,6 +85,7 @@ export const mapDoctorSessionPayload = (doctorRecord) => {
     experience: Number(doctorRecord.experience || 0),
     address: String(doctorRecord.address || '').trim(),
     bio: String(doctorRecord.bio || '').trim(),
+    education: String(doctorRecord.education || '').trim(),
     role: doctorRecord.role,
     applicationStatus: doctorRecord.applicationStatus,
     profileCtr: Math.max(0, Math.trunc(Number(doctorRecord.profileCtr || 0))),
@@ -109,6 +110,7 @@ export const mapDoctorProfilePayload = (doctorRecord) => {
     experience: Number(doctorRecord.experience || 0),
     address: String(doctorRecord.address || '').trim(),
     bio: String(doctorRecord.bio || '').trim(),
+    education: String(doctorRecord.education || '').trim(),
     avatarUrl: getDoctorAvatarUrl(doctorRecord),
     isProfileComplete: missingFields.length === 0,
     missingFields

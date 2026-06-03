@@ -29,6 +29,7 @@ export const updateDoctorProfile = async (req, res) => {
     const phone = String(req.body?.phone || '').trim();
     const address = String(req.body?.address || '').trim();
     const bio = String(req.body?.bio || '').trim();
+    const education = String(req.body?.education || '').trim();
     const missingFields = [];
 
     if (!fullName) {
@@ -64,6 +65,7 @@ export const updateDoctorProfile = async (req, res) => {
     doctor.phone = phone;
     doctor.address = address;
     doctor.bio = bio;
+    doctor.education = education;
     await doctor.save();
 
     return res.status(200).json({

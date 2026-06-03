@@ -82,7 +82,7 @@ export const getStoreProfileForPatient = async (req, res) => {
       storeId: storeId,
       status: 'In Stock'
     })
-      .select('name brand price stock category description status')
+      .select('name brand price stock category description status imageDocument')
       .sort({ name: 1 })
       .lean();
 
@@ -114,7 +114,8 @@ export const getStoreProfileForPatient = async (req, res) => {
         stock: Number(med.stock) || 0,
         category: String(med.category || '').trim(),
         description: String(med.description || '').trim(),
-        status: med.status || 'In Stock'
+        status: med.status || 'In Stock',
+        image: med.imageDocument?.url || ''
       })),
       gallery: media.map((m) => ({
         id: String(m._id),

@@ -40,6 +40,32 @@ const medicineSchema = new mongoose.Schema(
       type: String,
       enum: ['In Stock', 'Out of Stock'],
       default: 'In Stock'
+    },
+    imageDocument: {
+      url: {
+        type: String,
+        default: ''
+      },
+      publicId: {
+        type: String,
+        default: null
+      },
+      resourceType: {
+        type: String,
+        default: null
+      },
+      format: {
+        type: String,
+        default: null
+      },
+      originalName: {
+        type: String,
+        default: null
+      },
+      bytes: {
+        type: Number,
+        default: null
+      }
     }
   },
   {

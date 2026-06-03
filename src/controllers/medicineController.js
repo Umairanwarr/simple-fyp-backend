@@ -1,5 +1,6 @@
 import { Medicine } from '../models/Medicine.js';
 import { MedicalStore } from '../models/MedicalStore.js';
+import { deleteFromCloudinary, uploadMedicineImageToCloudinary } from '../services/cloudinaryService.js';
 
 const normalizeStorePlan = (value) => {
   const normalized = String(value || '').trim().toLowerCase();
@@ -28,7 +29,7 @@ export const getMedicines = async (req, res) => {
 export const addMedicine = async (req, res) => {
   try {
     const storeId = req.user.id;
-    const { name, brand, price, stock, category, description } = req.body;
+    const { name, brand, price, stock, category, description, imageDocument } = req.body;
     const store = await MedicalStore.findById(storeId).select('currentPlan').lean();
     if (!store) return res.status(404).json({ error: 'Store not found' });
 
@@ -50,6 +51,7 @@ export const addMedicine = async (req, res) => {
       stock,
       category,
       description,
+      imageDocument: imageDocument || null,
       status: stock > 0 ? 'In Stock' : 'Out of Stock'
     });
 
@@ -72,15 +74,23 @@ export const updateMedicine = async (req, res) => {
       updates.status = updates.stock > 0 ? 'In Stock' : 'Out of Stock';
     }
 
+    const existingMedicine = await Medicine.findOne({ _id: id, storeId });
+    if (!existingMedicine) {
+      return res.status(404).json({ error: 'Medicine not found' });
+    }
+
+    // Clean up old image from Cloudinary if it's being replaced or cleared
+    const oldPublicId = existingMedicine.imageDocument?.publicId;
+    const newPublicId = updates.imageDocument?.publicId;
+    if (oldPublicId && oldPublicId !== newPublicId) {
+      await deleteFromCloudinary(oldPublicId).catch(() => {});
+    }
+
     const updatedMedicine = await Medicine.findOneAndUpdate(
       { _id: id, storeId },
       { $set: updates },
       { new: true, runValidators: true }
     );
-
-    if (!updatedMedicine) {
-      return res.status(404).json({ error: 'Medicine not found' });
-    }
 
     res.json(updatedMedicine);
   } catch (error) {
@@ -100,8 +110,30 @@ export const deleteMedicine = async (req, res) => {
       return res.status(404).json({ error: 'Medicine not found' });
     }
 
+    // Clean up image from Cloudinary
+    if (deletedMedicine.imageDocument?.publicId) {
+      await deleteFromCloudinary(deletedMedicine.imageDocument.publicId).catch(() => {});
+    }
+
     res.json({ message: 'Medicine deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: 'Server error deleting medicine' });
+  }
+};
+
+// Upload medicine image
+export const uploadMedicineImage = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Please select an image file to upload' });
+    }
+
+    const uploadedAsset = await uploadMedicineImageToCloudinary(req.file);
+    return res.status(200).json({
+      message: 'Image uploaded successfully',
+      imageDocument: uploadedAsset
+    });
+  } catch (error) {
+    return res.status(500).json({ error: 'Could not upload medicine image', details: error.message });
   }
 };

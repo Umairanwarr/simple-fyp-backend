@@ -3,6 +3,7 @@ import { Doctor } from '../../../models/Doctor.js';
 import { DoctorProfileVisit } from '../../../models/DoctorProfileVisit.js';
 import { Patient } from '../../../models/Patient.js';
 import { MedicalStore } from '../../../models/MedicalStore.js';
+import { Clinic } from '../../../models/Clinic.js';
 import ChatMessage from '../../../models/ChatMessage.js';
 import { deleteFromCloudinary, uploadUserAvatarToCloudinary } from '../../../services/cloudinaryService.js';
 import {
@@ -25,6 +26,7 @@ export {
   DoctorProfileVisit,
   Patient,
   MedicalStore,
+  Clinic,
   ChatMessage,
   STRIPE_CURRENCY,
   crypto,
@@ -735,4 +737,73 @@ export const verifyFirebaseIdToken = async (idToken) => {
   }
 
   return data.users[0];
+};
+
+const isClinicDiamondPlanActive = (clinicRecord) => {
+  const plan = String(clinicRecord?.currentPlan || '').trim().toLowerCase();
+  const status = String(clinicRecord?.subscriptionStatus || '').trim().toLowerCase();
+  const expiryTimestamp = clinicRecord?.planExpiresAt ? new Date(clinicRecord.planExpiresAt).getTime() : 0;
+  return plan === 'diamond' && status === 'active' && expiryTimestamp > Date.now();
+};
+
+export const mapFavoriteClinicIdStrings = (patientRecord) => {
+  const rawFavoriteClinicIds = Array.isArray(patientRecord?.favoriteClinicIds)
+    ? patientRecord.favoriteClinicIds
+    : [];
+  const seenClinicIds = new Set();
+
+  return rawFavoriteClinicIds
+    .map((clinicId) => String(clinicId || '').trim())
+    .filter((clinicId) => {
+      if (!clinicId || seenClinicIds.has(clinicId)) {
+        return false;
+      }
+
+      seenClinicIds.add(clinicId);
+      return true;
+    });
+};
+
+export const mapClinicForPatientDirectory = (clinicRecord) => {
+  const averageRating = Number(clinicRecord?.averageRating || 0);
+  const totalReviews = Math.max(0, Math.trunc(Number(clinicRecord?.totalReviews || 0)));
+  const isDiamondPriority = isClinicDiamondPlanActive(clinicRecord);
+
+  return {
+    ...(isDiamondPriority
+      ? { isVerifiedBadge: true, hasPrioritySupport: true }
+      : { isVerifiedBadge: false, hasPrioritySupport: false }),
+    id: String(clinicRecord?._id),
+    name: String(clinicRecord?.name || '').trim() || 'Clinic',
+    specialty: String(clinicRecord?.facilityType || '').trim() || 'General Clinic',
+    specialtyTag: 'Clinic',
+    location: String(clinicRecord?.address || '').trim() || 'Location not provided',
+    image: String(clinicRecord?.avatarDocument?.url || '').trim() || '/clinic-placeholder.svg',
+    rating: averageRating > 0 ? averageRating.toFixed(2) : '0.00',
+    reviews: `${totalReviews} review${totalReviews === 1 ? '' : 's'}`,
+    totalReviews,
+    type: 'clinic',
+    isDiamondPriority
+  };
+};
+
+export const fetchPatientFavoriteClinics = async (favoriteClinicIds) => {
+  if (!Array.isArray(favoriteClinicIds) || favoriteClinicIds.length === 0) {
+    return [];
+  }
+
+  const clinics = await Clinic.find({
+    _id: { $in: favoriteClinicIds },
+    applicationStatus: { $ne: 'declined' },
+    emailVerified: true
+  })
+    .select('name address facilityType avatarDocument averageRating totalReviews currentPlan subscriptionStatus planExpiresAt')
+    .lean();
+
+  const clinicById = new Map(clinics.map((clinic) => [String(clinic._id), clinic]));
+
+  return favoriteClinicIds
+    .map((clinicId) => clinicById.get(String(clinicId)))
+    .filter(Boolean)
+    .map((clinic) => mapClinicForPatientDirectory(clinic));
 };
