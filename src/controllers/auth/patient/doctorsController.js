@@ -159,7 +159,7 @@ export const searchDoctorsForPatients = async (req, res) => {
     }
 
     const doctors = await Doctor.find(filters)
-      .select('fullName specialization licenseNumber experience address bio avatarDocument availabilitySlots averageRating totalReviews')
+      .select('fullName specialization licenseNumber experience address bio avatarDocument availabilitySlots averageRating totalReviews education')
       .sort({ updatedAt: -1 })
       .limit(250)
       .lean();

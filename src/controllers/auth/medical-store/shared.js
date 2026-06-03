@@ -1,5 +1,6 @@
 import { MedicalStore } from '../../../models/MedicalStore.js';
 import { STRIPE_CURRENCY, getStripeClient } from '../../../services/stripeService.js';
+import { mapLocationPayload } from '../../../utils/location.js';
 
 export {
   MedicalStore,
@@ -32,6 +33,7 @@ export const mapMedicalStoreSessionPayload = (storeRecord) => {
     email: storeRecord.email,
     phone: String(storeRecord.phone || '').trim(),
     address: String(storeRecord.address || '').trim(),
+    location: mapLocationPayload(storeRecord.location),
     licenseNumber: String(storeRecord.licenseNumber || '').trim(),
     operatingHours: String(storeRecord.operatingHours || '').trim(),
     bio: String(storeRecord.bio || '').trim(),

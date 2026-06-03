@@ -31,6 +31,11 @@ const clinicServiceSchema = new mongoose.Schema(
       trim: true,
       lowercase: true
     },
+    image: {
+      type: String,
+      default: '',
+      trim: true
+    },
     isActive: {
       type: Boolean,
       default: true

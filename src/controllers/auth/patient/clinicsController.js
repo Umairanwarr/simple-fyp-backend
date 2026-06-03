@@ -183,7 +183,7 @@ export const getClinicDoctorsForPatient = async (req, res) => {
         .select('fullName specialization avatarDocument availabilitySlots')
         .lean(),
       ClinicService.find({ clinicId, isActive: true })
-        .select('name serviceType availabilitySlots')
+        .select('name serviceType availabilitySlots image')
         .sort({ createdAt: -1 })
         .lean(),
       DoctorMedia.find({
@@ -309,6 +309,7 @@ export const getClinicDoctorsForPatient = async (req, res) => {
       reviews: (Array.isArray(clinic.reviews) ? clinic.reviews : [])
         .map((review) => ({
           id: String(review?._id || ''),
+          patientId: String(review?.patientId || ''),
           patientName: String(review?.patientName || '').trim() || 'Patient',
           doctorName: String(review?.doctorName || '').trim(),
           rating: Math.max(1, Math.min(5, Math.trunc(Number(review?.rating || 0)) || 0)),
@@ -328,6 +329,7 @@ export const getClinicDoctorsForPatient = async (req, res) => {
         id: String(service?._id || ''),
         name: String(service?.name || '').trim() || 'Clinic Service',
         serviceType: String(service?.serviceType || '').trim().toLowerCase() === 'facility' ? 'facility' : 'lab',
+        image: String(service?.image || '').trim(),
         slots: mapActiveSlots(service?.availabilitySlots)
       }))
     });

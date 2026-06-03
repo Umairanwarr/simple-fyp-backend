@@ -7,6 +7,7 @@ import {
 import { sendVerificationOtpEmail } from '../../services/mailService.js';
 import { generateOtp, getOtpExpiryDate, hashOtp } from '../../utils/otp.js';
 import { generateAuthToken } from '../../utils/token.js';
+import { buildLocationFromRequest } from '../../utils/location.js';
 import crypto from 'crypto';
 
 const normalizeEmail = (email) => String(email || '').toLowerCase().trim();
@@ -23,6 +24,9 @@ export const registerMedicalStore = async (req, res) => {
       phone,
       licenseNumber,
       address,
+      addressPlaceId,
+      addressLatitude,
+      addressLongitude,
       operatingHours,
       password,
       confirmPassword
@@ -71,6 +75,13 @@ export const registerMedicalStore = async (req, res) => {
     medicalStore.phone = String(phone).trim();
     medicalStore.licenseNumber = String(licenseNumber).trim();
     medicalStore.address = String(address).trim();
+    const selectedLocation = buildLocationFromRequest({
+      latitude: addressLatitude,
+      longitude: addressLongitude,
+      placeId: addressPlaceId,
+      formattedAddress: address
+    });
+    medicalStore.location = selectedLocation || undefined;
     medicalStore.operatingHours = String(operatingHours).trim();
     medicalStore.password = password;
     medicalStore.emailVerified = false;
@@ -444,14 +455,25 @@ export const getMedicalStoreProfile = async (req, res) => {
 
 export const updateMedicalStoreProfile = async (req, res) => {
   try {
-    const { name, phone, address, operatingHours, bio } = req.body;
+    const { name, phone, address, operatingHours, bio, addressPlaceId, addressLatitude, addressLongitude } = req.body;
     const medicalStore = await MedicalStore.findById(req.user?.id);
     
     if (!medicalStore) return res.status(404).json({ message: 'Medical store not found' });
 
     if (name) medicalStore.name = String(name).trim();
     if (phone) medicalStore.phone = String(phone).trim();
-    if (address) medicalStore.address = String(address).trim();
+    if (address) {
+      medicalStore.address = String(address).trim();
+      const selectedLocation = buildLocationFromRequest({
+        latitude: addressLatitude,
+        longitude: addressLongitude,
+        placeId: addressPlaceId,
+        formattedAddress: address
+      });
+      if (selectedLocation) {
+        medicalStore.location = selectedLocation;
+      }
+    }
     if (operatingHours) medicalStore.operatingHours = String(operatingHours).trim();
     if (typeof bio === 'string') medicalStore.bio = bio.trim();
 

@@ -30,6 +30,31 @@ const medicalStoreSchema = new mongoose.Schema(
       required: true,
       trim: true
     },
+    location: {
+      type: {
+        type: String,
+        enum: ['Point']
+      },
+      coordinates: {
+        type: [Number],
+        validate: {
+          validator: (coordinates) => Array.isArray(coordinates)
+            && coordinates.length === 2
+            && coordinates.every((coordinate) => Number.isFinite(coordinate)),
+          message: 'Location coordinates must include longitude and latitude'
+        }
+      },
+      placeId: {
+        type: String,
+        default: '',
+        trim: true
+      },
+      formattedAddress: {
+        type: String,
+        default: '',
+        trim: true
+      }
+    },
     operatingHours: {
       type: String,
       required: true,
@@ -244,6 +269,8 @@ const medicalStoreSchema = new mongoose.Schema(
     timestamps: true
   }
 );
+
+medicalStoreSchema.index({ location: '2dsphere' });
 
 medicalStoreSchema.pre('save', async function preSave(next) {
   if (!this.isModified('password')) {

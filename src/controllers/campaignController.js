@@ -395,7 +395,7 @@ export const getSponsoredAccountsForPatients = async (req, res) => {
     const clinicIds = promotions.filter((promotion) => promotion.accountRole === 'clinic' && promotion.clinicId).map((promotion) => promotion.clinicId);
 
     const [doctors, stores, clinics] = await Promise.all([
-      Doctor.find({ _id: { $in: doctorIds }, applicationStatus: { $ne: 'declined' }, emailVerified: true }).select('fullName specialization address avatarDocument availabilitySlots averageRating totalReviews').lean(),
+      Doctor.find({ _id: { $in: doctorIds }, applicationStatus: { $ne: 'declined' }, emailVerified: true }).select('fullName specialization address avatarDocument availabilitySlots averageRating totalReviews education experience').lean(),
       MedicalStore.find({ _id: { $in: storeIds }, applicationStatus: 'approved', emailVerified: true }).select('name address operatingHours avatarDocument averageRating totalReviews currentPlan subscriptionStatus planExpiresAt').lean(),
       Clinic.find({ _id: { $in: clinicIds }, applicationStatus: { $ne: 'declined' }, emailVerified: true }).select('name address facilityType avatarDocument averageRating totalReviews currentPlan subscriptionStatus planExpiresAt').lean()
     ]);

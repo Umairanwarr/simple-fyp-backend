@@ -4,6 +4,7 @@ import { ClinicDoctorAppointment } from '../../../models/ClinicDoctorAppointment
 import { ClinicService } from '../../../models/ClinicService.js';
 import { toMinutes } from './appointmentShared.js';
 import { isSlotExpiredByTimeZone } from '../../../utils/slotExpiry.js';
+import { deleteFromCloudinary, uploadUserAvatarToCloudinary } from '../../../services/cloudinaryService.js';
 
 const isSlotExpired = (slot, now = new Date()) => {
   return isSlotExpiredByTimeZone(slot, now);
@@ -23,6 +24,7 @@ const mapClinicServicePayload = (serviceRecord) => ({
   id: String(serviceRecord?._id || ''),
   name: String(serviceRecord?.name || '').trim(),
   serviceType: String(serviceRecord?.serviceType || '').trim().toLowerCase() === 'facility' ? 'facility' : 'lab',
+  image: String(serviceRecord?.image || '').trim(),
   isActive: Boolean(serviceRecord?.isActive),
   createdAt: serviceRecord?.createdAt || null,
   slots: (Array.isArray(serviceRecord?.availabilitySlots) ? serviceRecord.availabilitySlots : []).map((slot) => ({
@@ -74,12 +76,18 @@ export const createClinicService = async (req, res) => {
     const serviceType = normalizeServiceType(req.body?.serviceType);
     if (!name || !serviceType) return res.status(400).json({ message: 'Service name and type are required' });
 
+    let uploadedImage = null;
+    if (req.file) {
+      uploadedImage = await uploadUserAvatarToCloudinary(req.file, 'clinic-services');
+    }
+
     const service = await ClinicService.create({
       clinicId: clinic._id,
       clinicName: String(clinic.name || '').trim(),
       clinicEmail: String(clinic.email || '').trim().toLowerCase(),
       name,
       serviceType,
+      image: uploadedImage?.url || '',
       isActive: true
     });
 
@@ -110,6 +118,12 @@ export const updateClinicService = async (req, res) => {
     service.name = name;
     service.serviceType = serviceType;
     service.isActive = isActive;
+    
+    if (req.file) {
+      const uploadedImage = await uploadUserAvatarToCloudinary(req.file, 'clinic-services');
+      service.image = uploadedImage?.url || '';
+    }
+
     await service.save();
 
     return res.status(200).json({ message: 'Service updated successfully', service: mapClinicServicePayload(service) });

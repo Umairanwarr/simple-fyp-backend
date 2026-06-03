@@ -497,15 +497,24 @@ export const getDoctorNextAvailabilityLabel = (availabilitySlots) => {
 export const mapDoctorForPatientDirectory = (doctorRecord) => {
   const averageRating = Number(doctorRecord?.averageRating || 0);
   const totalReviews = Math.max(0, Math.trunc(Number(doctorRecord?.totalReviews || 0)));
+  const expYear = doctorRecord?.experience ?? 5;
+  const tagList = [];
+  if (expYear > 0) tagList.push(`${expYear}+ Years Experience`);
+  if (averageRating >= 4.5) {
+    tagList.push("Top Rated");
+  }
+  const tagsStr = tagList.join(' . ');
 
   return {
     id: String(doctorRecord?._id),
     name: String(doctorRecord?.fullName || '').trim() || 'Doctor',
     specialty: String(doctorRecord?.specialization || '').trim() || 'Specialist',
     specialtyTag: String(doctorRecord?.specialization || '').trim() || 'General',
+    degree: String(doctorRecord?.education || '').trim() || 'M.B.B.S.',
     rating: averageRating > 0 ? averageRating.toFixed(2) : '0.00',
     reviews: `${totalReviews} review${totalReviews === 1 ? '' : 's'}`,
     location: String(doctorRecord?.address || '').trim() || 'Location not provided',
+    tags: tagsStr,
     availability: getDoctorNextAvailabilityLabel(doctorRecord?.availabilitySlots),
     image: getDoctorAvatarUrl(doctorRecord) || '/topdoc.svg',
     type: 'doctor'
@@ -657,7 +666,7 @@ export const fetchPatientFavoriteDoctors = async (favoriteDoctorIds) => {
     applicationStatus: { $ne: 'declined' },
     emailVerified: true
   })
-    .select('fullName specialization licenseNumber experience address bio avatarDocument availabilitySlots averageRating totalReviews')
+    .select('fullName specialization licenseNumber experience address bio avatarDocument availabilitySlots averageRating totalReviews education')
     .lean();
 
   const doctorById = new Map(doctors.map((doctor) => [String(doctor._id), doctor]));

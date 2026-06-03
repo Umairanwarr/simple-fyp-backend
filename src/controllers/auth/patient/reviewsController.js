@@ -205,6 +205,82 @@ export const submitPatientAppointmentReview = async (req, res) => {
   }
 };
 
+export const submitDirectClinicReview = async (req, res) => {
+  try {
+    const { clinicId } = req.params;
+    const patientId = req.user?.id;
+    const normalizedRating = Math.trunc(Number(req.body?.rating));
+    const normalizedComment = normalizeReviewComment(req.body?.comment);
+
+    if (!mongoose.Types.ObjectId.isValid(clinicId)) {
+      return res.status(400).json({ message: 'Invalid clinic id' });
+    }
+
+    if (!Number.isInteger(normalizedRating) || normalizedRating < 1 || normalizedRating > 5) {
+      return res.status(400).json({ message: 'Rating must be a whole number between 1 and 5' });
+    }
+
+    const clinic = await Clinic.findOne({
+      _id: clinicId,
+      applicationStatus: 'approved',
+      emailVerified: true
+    }).select('name email reviews averageRating totalReviews');
+
+    if (!clinic) {
+      return res.status(404).json({ message: 'Clinic not found' });
+    }
+
+    // Enforce 1 review per patient
+    const alreadyReviewed = clinic.reviews.some(
+      (r) => String(r.patientId) === String(patientId)
+    );
+    if (alreadyReviewed) {
+      return res.status(409).json({ message: 'You have already reviewed this clinic' });
+    }
+
+    // Resolve patient name from Patient model
+    const { Patient } = await import('./shared.js');
+    const patient = await Patient.findById(patientId).select('firstName lastName').lean();
+    const patientName = patient
+      ? `${String(patient.firstName || '').trim()} ${String(patient.lastName || '').trim()}`.trim() || 'Patient'
+      : 'Patient';
+
+    const reviewCreatedAt = new Date();
+    clinic.reviews.push({
+      appointmentId: new mongoose.Types.ObjectId(), // synthetic id — no appointment required
+      patientId,
+      patientName,
+      doctorName: '',
+      rating: normalizedRating,
+      comment: normalizedComment,
+      createdAt: reviewCreatedAt
+    });
+
+    const ratingSummary = getDoctorRatingSummaryFromReviews(clinic.reviews);
+    clinic.totalReviews = ratingSummary.totalReviews;
+    clinic.averageRating = ratingSummary.averageRating;
+    await clinic.save();
+
+    if (clinic.email) {
+      await sendClinicReviewSubmittedEmail({
+        to: clinic.email,
+        clinicName: clinic.name,
+        patientName,
+        rating: normalizedRating,
+        comment: normalizedComment
+      }).catch(() => {});
+    }
+
+    return res.status(200).json({
+      message: 'Review submitted successfully',
+      averageRating: ratingSummary.averageRating,
+      totalReviews: ratingSummary.totalReviews
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Could not submit review', error: error.message });
+  }
+};
+
 export const skipPatientAppointmentReview = async (req, res) => {
   try {
     const { appointmentId } = req.params;

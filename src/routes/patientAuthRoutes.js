@@ -29,6 +29,7 @@ import {
   skipStoreOrderReview,
   skipPatientAppointmentReview,
   submitPatientAppointmentReview,
+  submitDirectClinicReview,
   sendPatientVerificationOtp,
   updatePatientProfile,
   updatePatientAvatar,
@@ -77,6 +78,7 @@ router.get('/appointments/history', requireRoleAuth(['patient']), getPatientAppo
 router.get('/appointments/pending-review', requireRoleAuth(['patient']), getPatientPendingReviewAppointment);
 router.post('/appointments/:appointmentId/review', requireRoleAuth(['patient']), submitPatientAppointmentReview);
 router.post('/appointments/:appointmentId/review/skip', requireRoleAuth(['patient']), skipPatientAppointmentReview);
+router.post('/clinics/:clinicId/direct-review', requireRoleAuth(['patient']), submitDirectClinicReview);
 router.patch('/appointments/:appointmentId/cancel', requireRoleAuth(['patient']), cancelPatientAppointment);
 router.post('/appointments/payment-intent', requireRoleAuth(['patient']), createPatientAppointmentPaymentIntent);
 router.post('/appointments/confirm-payment', requireRoleAuth(['patient']), confirmPatientAppointmentPayment);

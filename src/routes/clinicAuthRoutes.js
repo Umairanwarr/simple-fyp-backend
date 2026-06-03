@@ -90,8 +90,8 @@ router.post('/doctors', requireRoleAuth(['clinic']), handleAvatarUpload, registe
 router.patch('/doctors/:doctorId', requireRoleAuth(['clinic']), handleAvatarUpload, updateClinicDoctor);
 router.delete('/doctors/:doctorId', requireRoleAuth(['clinic']), deleteClinicDoctor);
 router.get('/services', requireRoleAuth(['clinic']), getClinicServices);
-router.post('/services', requireRoleAuth(['clinic']), createClinicService);
-router.patch('/services/:serviceId', requireRoleAuth(['clinic']), updateClinicService);
+router.post('/services', requireRoleAuth(['clinic']), handleAvatarUpload, createClinicService);
+router.patch('/services/:serviceId', requireRoleAuth(['clinic']), handleAvatarUpload, updateClinicService);
 router.delete('/services/:serviceId', requireRoleAuth(['clinic']), deleteClinicService);
 router.get('/services/:serviceId/availability', requireRoleAuth(['clinic']), getClinicServiceAvailability);
 router.post('/services/:serviceId/availability', requireRoleAuth(['clinic']), createClinicServiceAvailability);

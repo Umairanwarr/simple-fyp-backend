@@ -30,6 +30,31 @@ const clinicSchema = new mongoose.Schema(
       required: true,
       trim: true
     },
+    location: {
+      type: {
+        type: String,
+        enum: ['Point']
+      },
+      coordinates: {
+        type: [Number],
+        validate: {
+          validator: (coordinates) => Array.isArray(coordinates)
+            && coordinates.length === 2
+            && coordinates.every((coordinate) => Number.isFinite(coordinate)),
+          message: 'Location coordinates must include longitude and latitude'
+        }
+      },
+      placeId: {
+        type: String,
+        default: '',
+        trim: true
+      },
+      formattedAddress: {
+        type: String,
+        default: '',
+        trim: true
+      }
+    },
     about: {
       type: String,
       default: '',
@@ -260,6 +285,8 @@ const clinicSchema = new mongoose.Schema(
     timestamps: true
   }
 );
+
+clinicSchema.index({ location: '2dsphere' });
 
 clinicSchema.pre('save', async function preSave(next) {
   if (!this.isModified('password')) {

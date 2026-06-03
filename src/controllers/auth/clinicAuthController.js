@@ -7,6 +7,7 @@ import {
 import { sendVerificationOtpEmail } from '../../services/mailService.js';
 import { generateOtp, getOtpExpiryDate, hashOtp } from '../../utils/otp.js';
 import { generateAuthToken } from '../../utils/token.js';
+import { buildLocationFromRequest, mapLocationPayload } from '../../utils/location.js';
 import crypto from 'crypto';
 
 const normalizeEmail = (email) => String(email || '').toLowerCase().trim();
@@ -47,6 +48,9 @@ export const registerClinic = async (req, res) => {
       phone,
       facilityType,
       address,
+      addressPlaceId,
+      addressLatitude,
+      addressLongitude,
       password,
       confirmPassword
     } = req.body;
@@ -94,6 +98,13 @@ export const registerClinic = async (req, res) => {
     clinic.phone = String(phone).trim();
     clinic.facilityType = String(facilityType).trim();
     clinic.address = String(address).trim();
+    const selectedLocation = buildLocationFromRequest({
+      latitude: addressLatitude,
+      longitude: addressLongitude,
+      placeId: addressPlaceId,
+      formattedAddress: address
+    });
+    clinic.location = selectedLocation || undefined;
     clinic.password = password;
     clinic.emailVerified = false;
     clinic.applicationStatus = 'pending';
@@ -418,6 +429,7 @@ export const getClinicProfile = async (req, res) => {
         phone: clinic.phone,
         facilityType: clinic.facilityType,
         address: clinic.address,
+        location: mapLocationPayload(clinic.location),
         about: clinic.about || '',
         applicationStatus: clinic.applicationStatus,
         role: clinic.role,
@@ -438,7 +450,7 @@ export const getClinicProfile = async (req, res) => {
 
 export const updateClinicProfile = async (req, res) => {
   try {
-    const { name, phone, address, facilityType, about } = req.body;
+    const { name, phone, address, facilityType, about, addressPlaceId, addressLatitude, addressLongitude } = req.body;
 
     const clinic = await Clinic.findById(req.user?.id);
 
@@ -448,7 +460,18 @@ export const updateClinicProfile = async (req, res) => {
 
     if (name) clinic.name = String(name).trim();
     if (phone) clinic.phone = String(phone).trim();
-    if (address) clinic.address = String(address).trim();
+    if (address) {
+      clinic.address = String(address).trim();
+      const selectedLocation = buildLocationFromRequest({
+        latitude: addressLatitude,
+        longitude: addressLongitude,
+        placeId: addressPlaceId,
+        formattedAddress: address
+      });
+      if (selectedLocation) {
+        clinic.location = selectedLocation;
+      }
+    }
     if (facilityType) clinic.facilityType = String(facilityType).trim();
     if (about !== undefined) clinic.about = String(about || '').trim().slice(0, 2000);
 
@@ -463,6 +486,7 @@ export const updateClinicProfile = async (req, res) => {
         phone: clinic.phone,
         facilityType: clinic.facilityType,
         address: clinic.address,
+        location: mapLocationPayload(clinic.location),
         about: clinic.about || '',
         applicationStatus: clinic.applicationStatus,
         role: clinic.role,
