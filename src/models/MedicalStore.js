@@ -1,6 +1,53 @@
 import bcrypt from 'bcryptjs';
 import mongoose from 'mongoose';
 
+const hasValidGeoLocation = (location) => {
+  return location
+    && location.type === 'Point'
+    && Array.isArray(location.coordinates)
+    && location.coordinates.length === 2
+    && location.coordinates.every((coordinate) => Number.isFinite(coordinate));
+};
+
+const clearInvalidGeoLocation = function clearInvalidGeoLocation(next) {
+  if (this.location && !hasValidGeoLocation(this.location)) {
+    this.location = undefined;
+    this.markModified('location');
+  }
+
+  next();
+};
+
+const geoLocationSchema = new mongoose.Schema(
+  {
+    type: {
+      type: String,
+      enum: ['Point']
+    },
+    coordinates: {
+      type: [Number],
+      default: undefined,
+      validate: {
+        validator: (coordinates) => Array.isArray(coordinates)
+          && coordinates.length === 2
+          && coordinates.every((coordinate) => Number.isFinite(coordinate)),
+        message: 'Location coordinates must include longitude and latitude'
+      }
+    },
+    placeId: {
+      type: String,
+      default: '',
+      trim: true
+    },
+    formattedAddress: {
+      type: String,
+      default: '',
+      trim: true
+    }
+  },
+  { _id: false }
+);
+
 const medicalStoreSchema = new mongoose.Schema(
   {
     name: {
@@ -31,29 +78,8 @@ const medicalStoreSchema = new mongoose.Schema(
       trim: true
     },
     location: {
-      type: {
-        type: String,
-        enum: ['Point']
-      },
-      coordinates: {
-        type: [Number],
-        validate: {
-          validator: (coordinates) => Array.isArray(coordinates)
-            && coordinates.length === 2
-            && coordinates.every((coordinate) => Number.isFinite(coordinate)),
-          message: 'Location coordinates must include longitude and latitude'
-        }
-      },
-      placeId: {
-        type: String,
-        default: '',
-        trim: true
-      },
-      formattedAddress: {
-        type: String,
-        default: '',
-        trim: true
-      }
+      type: geoLocationSchema,
+      default: undefined
     },
     operatingHours: {
       type: String,
@@ -270,7 +296,18 @@ const medicalStoreSchema = new mongoose.Schema(
   }
 );
 
-medicalStoreSchema.index({ location: '2dsphere' });
+medicalStoreSchema.index(
+  { location: '2dsphere' },
+  {
+    partialFilterExpression: {
+      'location.type': 'Point',
+      'location.coordinates.0': { $exists: true },
+      'location.coordinates.1': { $exists: true }
+    }
+  }
+);
+
+medicalStoreSchema.pre('validate', clearInvalidGeoLocation);
 
 medicalStoreSchema.pre('save', async function preSave(next) {
   if (!this.isModified('password')) {
