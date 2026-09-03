@@ -517,6 +517,8 @@ export const mapDoctorForPatientDirectory = (doctorRecord) => {
     tags: tagsStr,
     availability: getDoctorNextAvailabilityLabel(doctorRecord?.availabilitySlots),
     image: getDoctorAvatarUrl(doctorRecord) || '/topdoc.svg',
+    latitude: doctorRecord?.location?.coordinates?.[1] ?? null,
+    longitude: doctorRecord?.location?.coordinates?.[0] ?? null,
     type: 'doctor'
   };
 };
@@ -541,6 +543,8 @@ export const mapMedicalStoreForPatientDirectory = (storeRecord) => {
     rating: averageRating > 0 ? averageRating.toFixed(2) : '0.00',
     reviews: `${totalReviews} review${totalReviews === 1 ? '' : 's'}`,
     location: String(storeRecord?.address || '').trim() || 'Location not provided',
+    latitude: storeRecord?.location?.coordinates?.[1] ?? null,
+    longitude: storeRecord?.location?.coordinates?.[0] ?? null,
     availability: String(storeRecord?.operatingHours || '').trim() || 'Check hours',
     image: String(storeRecord?.avatarDocument?.url || '').trim() || '/pharmacy-placeholder.svg',
     type: 'store',

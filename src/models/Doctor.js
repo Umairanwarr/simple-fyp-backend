@@ -1,6 +1,36 @@
 import bcrypt from 'bcryptjs';
 import mongoose from 'mongoose';
 
+const geoLocationSchema = new mongoose.Schema(
+  {
+    type: {
+      type: String,
+      enum: ['Point']
+    },
+    coordinates: {
+      type: [Number],
+      default: undefined,
+      validate: {
+        validator: (coordinates) => Array.isArray(coordinates)
+          && coordinates.length === 2
+          && coordinates.every((coordinate) => Number.isFinite(coordinate)),
+        message: 'Location coordinates must include longitude and latitude'
+      }
+    },
+    placeId: {
+      type: String,
+      default: '',
+      trim: true
+    },
+    formattedAddress: {
+      type: String,
+      default: '',
+      trim: true
+    }
+  },
+  { _id: false }
+);
+
 const doctorSchema = new mongoose.Schema(
   {
     fullName: {
@@ -39,6 +69,10 @@ const doctorSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true
+    },
+    location: {
+      type: geoLocationSchema,
+      default: undefined
     },
     bio: {
       type: String,

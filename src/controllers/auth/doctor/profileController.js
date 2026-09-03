@@ -5,6 +5,7 @@ import {
   mapDoctorSessionPayload,
   uploadUserAvatarToCloudinary
 } from './shared.js';
+import { buildLocationFromRequest } from '../../../utils/location.js';
 
 export const getDoctorProfile = async (req, res) => {
   try {
@@ -30,6 +31,9 @@ export const updateDoctorProfile = async (req, res) => {
     const address = String(req.body?.address || '').trim();
     const bio = String(req.body?.bio || '').trim();
     const education = String(req.body?.education || '').trim();
+    const addressPlaceId = req.body?.addressPlaceId;
+    const addressLatitude = req.body?.addressLatitude;
+    const addressLongitude = req.body?.addressLongitude;
     const missingFields = [];
 
     if (!fullName) {
@@ -64,6 +68,15 @@ export const updateDoctorProfile = async (req, res) => {
     doctor.fullName = fullName;
     doctor.phone = phone;
     doctor.address = address;
+    const selectedLocation = buildLocationFromRequest({
+      latitude: addressLatitude,
+      longitude: addressLongitude,
+      placeId: addressPlaceId,
+      formattedAddress: address
+    });
+    if (selectedLocation) {
+      doctor.location = selectedLocation;
+    }
     doctor.bio = bio;
     doctor.education = education;
     await doctor.save();

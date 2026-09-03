@@ -9,6 +9,7 @@ import { Medicine } from '../../../models/Medicine.js';
 import { StoreOrder } from '../../../models/StoreOrder.js';
 import { StoreOrderNotification } from '../../../models/StoreOrderNotification.js';
 import { DoctorMedia } from '../../../models/DoctorMedia.js';
+import { CampaignPromotion } from '../../../models/CampaignPromotion.js';
 import {
   sendStoreOrderPlacedEmail,
   sendStoreNewOrderEmail
@@ -30,7 +31,7 @@ export const searchStoresForPatients = async (req, res) => {
     };
 
     const stores = await MedicalStore.find(filters)
-      .select('name licenseNumber address operatingHours avatarDocument bio currentPlan subscriptionStatus planExpiresAt')
+      .select('name licenseNumber address operatingHours avatarDocument bio currentPlan subscriptionStatus planExpiresAt location')
       .sort({ updatedAt: -1 })
       .limit(250)
       .lean();
@@ -50,8 +51,24 @@ export const searchStoresForPatients = async (req, res) => {
           return queryTokens.some((token) => searchableText.includes(token));
         });
 
+    const storeIds = filteredStores.map((store) => store?._id).filter(Boolean);
+    const activeCampaigns = storeIds.length > 0
+      ? await CampaignPromotion.find({
+          accountRole: 'medical-store',
+          storeId: { $in: storeIds },
+          status: 'active',
+          expiresAt: { $gt: new Date() }
+        })
+          .select('storeId')
+          .lean()
+      : [];
+    const campaignedStoreIdSet = new Set(activeCampaigns.map((promotion) => String(promotion?.storeId || '').trim()));
+
     return res.status(200).json({
-      stores: filteredStores.map((store) => mapMedicalStoreForPatientDirectory(store))
+      stores: filteredStores.map((store) => ({
+        ...mapMedicalStoreForPatientDirectory(store),
+        isSponsored: campaignedStoreIdSet.has(String(store?._id || '').trim())
+      }))
     });
   } catch (error) {
     return res.status(500).json({ message: 'Could not fetch stores for search', error: error.message });

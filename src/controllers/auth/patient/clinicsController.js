@@ -90,7 +90,7 @@ export const searchClinicsForPatients = async (req, res) => {
     }
 
     const clinics = await Clinic.find(filters)
-      .select('name email phone address facilityType avatarDocument averageRating totalReviews applicationStatus emailVerified currentPlan subscriptionStatus planExpiresAt')
+      .select('name email phone address facilityType avatarDocument averageRating totalReviews applicationStatus emailVerified currentPlan subscriptionStatus planExpiresAt location')
       .sort({ updatedAt: -1 })
       .limit(250)
       .lean();
@@ -136,6 +136,8 @@ export const searchClinicsForPatients = async (req, res) => {
         specialty: String(clinic.facilityType || '').trim() || 'General Clinic',
         specialtyTag: 'Clinic',
         location: String(clinic.address || '').trim() || 'Location not provided',
+        latitude: clinic.location?.coordinates?.[1] ?? null,
+        longitude: clinic.location?.coordinates?.[0] ?? null,
         image: String(clinic.avatarDocument?.url || '').trim() || '/clinic-placeholder.svg',
         rating: Number(clinic.averageRating || 0).toFixed(2),
         reviews: `${Math.max(0, Math.trunc(Number(clinic.totalReviews || 0)))} reviews`,

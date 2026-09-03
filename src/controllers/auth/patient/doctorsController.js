@@ -11,6 +11,7 @@ import {
   mongoose
 } from './shared.js';
 import { DoctorMedia } from '../../../models/DoctorMedia.js';
+import { CampaignPromotion } from '../../../models/CampaignPromotion.js';
 
 const removeExpiredDoctorSlots = async (doctor) => {
   if (!doctor || !Array.isArray(doctor.availabilitySlots)) {
@@ -159,7 +160,7 @@ export const searchDoctorsForPatients = async (req, res) => {
     }
 
     const doctors = await Doctor.find(filters)
-      .select('fullName specialization licenseNumber experience address bio avatarDocument availabilitySlots averageRating totalReviews education')
+      .select('fullName specialization licenseNumber experience address bio avatarDocument availabilitySlots averageRating totalReviews education location')
       .sort({ updatedAt: -1 })
       .limit(250)
       .lean();
@@ -180,8 +181,24 @@ export const searchDoctorsForPatients = async (req, res) => {
           return queryTokens.some((token) => searchableText.includes(token));
         });
 
+    const doctorIds = filteredDoctors.map((doc) => doc?._id).filter(Boolean);
+    const activeCampaigns = doctorIds.length > 0
+      ? await CampaignPromotion.find({
+          accountRole: 'doctor',
+          doctorId: { $in: doctorIds },
+          status: 'active',
+          expiresAt: { $gt: new Date() }
+        })
+          .select('doctorId')
+          .lean()
+      : [];
+    const campaignedDoctorIdSet = new Set(activeCampaigns.map((promotion) => String(promotion?.doctorId || '').trim()));
+
     return res.status(200).json({
-      doctors: filteredDoctors.map((doctor) => mapDoctorForPatientDirectory(doctor))
+      doctors: filteredDoctors.map((doctor) => ({
+        ...mapDoctorForPatientDirectory(doctor),
+        isSponsored: campaignedDoctorIdSet.has(String(doctor?._id || '').trim())
+      }))
     });
   } catch (error) {
     return res.status(500).json({ message: 'Could not fetch doctors for search', error: error.message });

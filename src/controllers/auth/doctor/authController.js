@@ -13,6 +13,8 @@ import {
 } from './shared.js';
 import crypto from 'crypto';
 
+import { buildLocationFromRequest } from '../../../utils/location.js';
+
 export const registerDoctor = async (req, res) => {
   try {
     const {
@@ -23,6 +25,9 @@ export const registerDoctor = async (req, res) => {
       licenseNumber,
       experience,
       address,
+      addressPlaceId,
+      addressLatitude,
+      addressLongitude,
       password,
       confirmPassword
     } = req.body;
@@ -82,6 +87,15 @@ export const registerDoctor = async (req, res) => {
     doctor.licenseNumber = String(licenseNumber).trim();
     doctor.experience = Number(experience);
     doctor.address = String(address).trim();
+    const selectedLocation = buildLocationFromRequest({
+      latitude: addressLatitude,
+      longitude: addressLongitude,
+      placeId: addressPlaceId,
+      formattedAddress: address
+    });
+    if (selectedLocation) {
+      doctor.location = selectedLocation;
+    }
     doctor.bio = String(existingDoctor?.bio || '').trim();
     doctor.password = password;
     doctor.emailVerified = false;
