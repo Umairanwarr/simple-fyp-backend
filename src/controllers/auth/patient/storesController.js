@@ -31,7 +31,7 @@ export const searchStoresForPatients = async (req, res) => {
     };
 
     const stores = await MedicalStore.find(filters)
-      .select('name licenseNumber address operatingHours avatarDocument bio currentPlan subscriptionStatus planExpiresAt location')
+      .select('name licenseNumber address operatingHours avatarDocument bio currentPlan subscriptionStatus planExpiresAt location averageRating totalReviews')
       .sort({ updatedAt: -1 })
       .limit(250)
       .lean();
